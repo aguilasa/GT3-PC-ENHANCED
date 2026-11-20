@@ -46,6 +46,9 @@
 /* _gp with a size, declared before G000's unsized declaration (as app_internal.h,
  * file_loader_internal.h, mpegif_internal.h): egcs then counts it as small data (-G8) and loads &_gp
  * with one `la' kept in source order, as retail's usbd_init has it. */
+#ifdef __cplusplus
+extern "C"                              /* the linkage of G000's declaration */
+#endif
 extern char _gp[4];                     /* 0x003579F0 */
 #include "runtime/startup/G000_collect2_ctors.h"   /* _gp */
 #include "sdk/libcdvd/G004_libcdvd.h"          /* sceMcWrite, sceMcSync, sceScfGet*fromRTC (core addresses) */
