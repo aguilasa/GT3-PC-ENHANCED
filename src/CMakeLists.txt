@@ -7,7 +7,23 @@
 # /Zc:threadSafeInit-: function-local statics without the C++11 guard (its
 # lock would deadlock when the game scheduler switches threads inside a
 # static's constructor; one game thread runs at a time, as on the EE).
-set(GT3_DECOMP_OPTIONS /FI${GT3PC_ROOT}/include/pc_prelude.h /permissive /bigobj /EHsc /W0 /Zc:threadSafeInit-)
+# GCC / Clang (cmake/toolchains/linux-i686.cmake): the same prelude by
+# -include; -w as /W0; -fno-threadsafe-statics as /Zc:threadSafeInit-;
+# the egcs code's assumptions of overflow, aliasing and null checks kept
+# (-fwrapv -fno-strict-aliasing -fno-delete-null-pointer-checks); SSE2 scalar
+# floating point without contraction (-msse2 -mfpmath=sse -ffp-contract=off):
+# i686 code otherwise computes on the x87 stack, with extended precision, and
+# the physics drifts from the MSVC build and the PS2; -fpermissive (GCC only)
+# for the pre-standard C++; GNU C++17 (CXX_EXTENSIONS on the targets).
+if(MSVC)
+    set(GT3_DECOMP_OPTIONS /FI${GT3PC_ROOT}/include/pc_prelude.h /permissive /bigobj /EHsc /W0 /Zc:threadSafeInit-)
+else()
+    set(GT3_DECOMP_OPTIONS
+        -include ${GT3PC_ROOT}/include/pc_prelude.h
+        -w -fno-threadsafe-statics -fno-strict-aliasing -fwrapv -fno-delete-null-pointer-checks
+        -msse2 -mfpmath=sse -ffp-contract=off -march=pentium4
+        $<$<COMPILE_LANG_AND_ID:CXX,GNU>:-fpermissive>)
+endif()
 
 # ---- the game: the decompiled C++ of src/game --------------------------------
 file(GLOB_RECURSE GT3_GAME_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/game/*.cpp)
@@ -121,6 +137,14 @@ add_library(gt3_engine OBJECT ${GT3_ENGINE_SOURCES})
 target_include_directories(gt3_engine PUBLIC ${GT3PC_ROOT}/include ${GT3PC_ROOT}/src)
 target_compile_options(gt3_engine PRIVATE ${GT3_DECOMP_OPTIONS})
 target_compile_definitions(gt3_engine PRIVATE GT3_PC=1)
+
+if(NOT MSVC)
+    # GCC / Clang: only the decompiled code builds for now (gnu++17); the
+    # platform layer, the renderer, the sound and movie output and the
+    # executables are still Windows-only.
+    set_target_properties(gt3_game gt3_engine PROPERTIES CXX_EXTENSIONS ON)
+    return()
+endif()
 
 # ---- the platform layer -------------------------------------------------------
 add_library(gt3_platform STATIC

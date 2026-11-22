@@ -4,7 +4,7 @@ project(gt3pc LANGUAGES C CXX)
 # 32-bit only: the game's data files carry 32-bit pointers that the game
 # relocates in place (models, textures, menus, sound tables).
 if(NOT CMAKE_SIZEOF_VOID_P EQUAL 4)
-    message(FATAL_ERROR "GT3 PC builds as 32-bit x86: configure from the x86 MSVC environment (build.cmd / tools\\msvc.cmd)")
+    message(FATAL_ERROR "GT3 PC builds as 32-bit x86: configure from the x86 MSVC environment (build.cmd / tools\\msvc.cmd) or, on Linux, with -DCMAKE_TOOLCHAIN_FILE=cmake/toolchains/linux-i686.cmake")
 endif()
 
 # build/compile_commands.json: each file's compile command, for the editors'
@@ -17,8 +17,13 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # Static CRT: the executables need no redistributable.
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
-add_compile_definitions(_CRT_SECURE_NO_WARNINGS _CRT_NONSTDC_NO_WARNINGS NOMINMAX WIN32_LEAN_AND_MEAN)
-add_compile_options(/utf-8 /W3 /wd4244 /wd4267 /wd4305 /wd4996)
+if(MSVC)
+    add_compile_definitions(_CRT_SECURE_NO_WARNINGS _CRT_NONSTDC_NO_WARNINGS NOMINMAX WIN32_LEAN_AND_MEAN)
+    add_compile_options(/utf-8 /W3 /wd4244 /wd4267 /wd4305 /wd4996)
+else()
+    # GCC / Clang (cmake/toolchains/linux-i686.cmake): UTF-8 sources, as /utf-8.
+    add_compile_options(-finput-charset=UTF-8)
+endif()
 
 set(GT3PC_ROOT ${CMAKE_CURRENT_SOURCE_DIR})
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
