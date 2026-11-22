@@ -530,8 +530,11 @@ int snd_voice_alloc(int priority)
     }
 
     if (best != NULL) {
-        s8 *owner = best->owner;
+        /* (declared without an initialiser: the goto take above jumps
+         * past it, which C++ allows only then) */
+        s8 *owner;
 
+        owner = best->owner;
         if (owner != NULL) {
             if (snd_trace_level() >= 2)             /* PC: the trace's note */
                 snd_trace_lost(owner, SND_LOST_STOLEN, bestIdx, best->priority, priority);

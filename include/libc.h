@@ -24,6 +24,24 @@
 #include <ctype.h>
 #include <math.h>
 #include <errno.h>
+#ifndef _MSC_VER
+/* GCC / Clang with glibc and libstdc++: pull in every header whose inline
+ * code names a C library function (std::rand in <algorithm>, ::free in
+ * <memory>, ::sinf in <cmath>...) before the macros below rename them, and
+ * the fixed-width integer types MSVC's headers bring in on their own. */
+#include <stdint.h>
+#include <strings.h>
+#ifdef __cplusplus
+#include <cstdlib>
+#include <cmath>
+#include <cstring>
+#include <cstdio>
+#include <algorithm>
+#include <random>
+#include <memory>
+#include <string>
+#endif
+#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -85,7 +103,15 @@ float  pc_tanf(float x);
 #define tanf        pc_tanf
 #undef  RAND_MAX
 #define RAND_MAX    0x7FFFFFFF
+#ifdef _MSC_VER
 #define strcasecmp  _stricmp
 #define strncasecmp _strnicmp
+#else
+/* The MSVC runtime names the decompiled code and the port use, mapped to
+ * their POSIX / GCC equivalents. */
+#define _stricmp            strcasecmp
+#define _strnicmp           strncasecmp
+#define _byteswap_ulong(x)  __builtin_bswap32(x)
+#endif
 
 #endif /* BOOT_LIBC_H */

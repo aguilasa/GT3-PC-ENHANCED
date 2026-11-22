@@ -23,8 +23,21 @@ static RaceRandom g_00353250;                   /* 0x00353250 */
  * CPU's time-stamp counter (docs/system.md 2.5).  The intrinsic is declared
  * here, not through <intrin.h> (game files include no compiler library
  * headers). */
+#ifdef _MSC_VER
 extern "C" unsigned __int64 __rdtsc(void);
 #pragma intrinsic(__rdtsc)
+#else
+/* GCC / Clang: the intrinsic comes from <x86intrin.h>, whose <mm_malloc.h>
+ * calls malloc / free: read it with the C library's names, not the
+ * pdistd heap's (libc.h). */
+#pragma push_macro("malloc")
+#pragma push_macro("free")
+#undef malloc
+#undef free
+#include <x86intrin.h>
+#pragma pop_macro("free")
+#pragma pop_macro("malloc")
+#endif
 static inline u32 cop0_random(void)
 {
     return (u32)(__rdtsc() % 48);

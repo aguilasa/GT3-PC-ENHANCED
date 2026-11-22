@@ -32,7 +32,11 @@
  * addiu) kept in source order, as retail does in thread_create_retry and
  * pdi1394_init (app_internal.h does the same; not in G000 itself, where a sized
  * declaration costs u121 / u123: ref/matching/u127/pending.md). */
+#ifdef __cplusplus
+extern "C" char _gp[4];                         /* 0x003579F0, the linkage of G000's declaration */
+#else
 extern char _gp[4];                             /* 0x003579F0 */
+#endif
 #include "runtime/startup/G000_collect2_ctors.h"   /* _gp */
 
 /* ======================================================================== */

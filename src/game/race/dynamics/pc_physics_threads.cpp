@@ -9,7 +9,11 @@
 #include <mutex>
 #include <thread>
 
+#ifdef _MSC_VER
 #include <float.h>                              /* __control87_2 */
+#else
+#include <fpu_control.h>                        /* _FPU_GETCW, _FPU_SETCW */
+#endif
 #include <stdlib.h>                             /* getenv, atoi */
 #include <emmintrin.h>                          /* _mm_pause, _mm_getcsr, _mm_setcsr */
 
@@ -20,7 +24,16 @@ enum { kMaxWorkers = 16 };
 /* The x87 control word bits a job takes from its caller: the exception
  * masks, the rounding and the precision.  (The SSE unit's MXCSR is copied
  * whole: its rounding, flush-to-zero and denormals-are-zero.) */
+#ifdef _MSC_VER
 const unsigned int kX87Mask = _MCW_EM | _MCW_RC | _MCW_PC;
+#else
+/* GCC / Clang: the hardware control word itself.  MSVC's __control87_2
+ * reads and writes the x87 word in its own _MCW_* encoding; here the same
+ * three fields are taken in the FPU's layout: the exception masks (bits
+ * 0-5), the precision control (bits 8-9) and the rounding control (bits
+ * 10-11). */
+const unsigned int kX87Mask = 0x003Fu | _FPU_EXTENDED | _FPU_RC_ZERO;
+#endif
 
 /* The pool's job (one at a time).  The plain fields are written under mtx
  * while no worker is inside a job; a worker copies them under mtx. */
@@ -49,7 +62,19 @@ void use_fpu_mode(unsigned int x87, unsigned int csr)
 {
     unsigned int cur = 0;
 
+#ifdef _MSC_VER
     __control87_2(x87, kX87Mask, &cur, nullptr);
+#else
+    /* What __control87_2(x87, kX87Mask, ...) does on MSVC: the masked
+     * fields of the x87 word (exception masks, precision, rounding) set
+     * to the caller's, the others kept. */
+    fpu_control_t cw;
+
+    _FPU_GETCW(cw);
+    cur = cw;
+    cw = (fpu_control_t)((cur & ~kX87Mask) | (x87 & kX87Mask));
+    _FPU_SETCW(cw);
+#endif
     _mm_setcsr(csr);
 }
 
@@ -154,7 +179,18 @@ void pc_physics_run(PcCarJob job, void *ctx, int first, int last)
             job(ctx, i);
         return;
     }
+#ifdef _MSC_VER
     __control87_2(0, 0, &x87, nullptr);
+#else
+    {
+        /* MSVC's __control87_2(0, 0, &x87, ...): only reads the x87
+         * control word. */
+        fpu_control_t cw;
+
+        _FPU_GETCW(cw);
+        x87 = cw;
+    }
+#endif
     {
         std::lock_guard<std::mutex> lock(p->mtx);
 
