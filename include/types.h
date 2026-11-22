@@ -26,13 +26,35 @@
 typedef unsigned char       u8;
 typedef unsigned short      u16;
 typedef unsigned int        u32;
-typedef unsigned long long  u64;
 typedef signed char         s8;
 typedef signed short        s16;
 typedef signed int          s32;
-typedef signed long long    s64;
 typedef float               f32;
+#if !defined(_MSC_VER) && defined(__i386__)
+/* The i386 SysV ABI aligns 64-bit members to 4 bytes inside a struct; MSVC
+ * and the EE align them to 8.  The alignment goes on the types themselves
+ * (not -malign-double, which also changes long double and the layout of the
+ * C library's own structs), so every record holding them keeps the MSVC /
+ * PS2 offsets and size. */
+typedef unsigned long long  u64 __attribute__((aligned(8)));
+typedef signed long long    s64 __attribute__((aligned(8)));
+typedef double              f64 __attribute__((aligned(8)));
+#else
+typedef unsigned long long  u64;
+typedef signed long long    s64;
 typedef double              f64;
+#endif
+
+/* The Itanium C++ ABI (GCC / Clang on i386) puts a derived class's first
+ * member or next base inside the tail padding of a base that is not POD;
+ * egcs and MSVC start it past the base's whole size.  PC_TAIL_PAD fills that
+ * padding with an unused member there, so the derived class keeps the MSVC /
+ * PS2 offsets; it is empty for the other compilers. */
+#if !defined(_MSC_VER) && defined(__i386__)
+#define PC_TAIL_PAD(name, n) u8 name[n];
+#else
+#define PC_TAIL_PAD(name, n)
+#endif
 
 /* An EE 128-bit register value (a quadword in memory: lq / sq). */
 #ifdef __cplusplus

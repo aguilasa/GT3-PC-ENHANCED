@@ -301,6 +301,9 @@ public:
     volatile int       field_9798;          /* 0x9798 read and cleared with interrupts off */
     volatile int       wakeup;              /* 0x979C signal() / takeSignal() */
     /*  0x97A0 .. 0x97BF: alignment */
+    /* PC: 0xE2E0..0xE300 is tail padding; on GCC / Clang i386 a member
+     * there keeps a derived class's data at +0xE300, as MSVC lays it out. */
+    PC_TAIL_PAD(pcTail_E2E0, 0x20)
 };
 EGCS_SIZE(RaceBase, 0x97C0);
 

@@ -117,6 +117,9 @@ public:
     RaceDisplayBase *raceDisplay;           /* 0xC888 (u046: display) */
     int              raceModeId;            /* 0xC88C the id of the "RACE_MODE_..." name */
     /*  0xC890 .. 0xC8BF: alignment */
+    /* PC: 0x20510..0x20540 is tail padding; on GCC / Clang i386 a member
+     * there keeps a derived class's data at +0x20540, as MSVC lays it out. */
+    PC_TAIL_PAD(pcTail_20510, 0x30)
 };
 EGCS_SIZE(RaceBasic, 0xC8C0);
 

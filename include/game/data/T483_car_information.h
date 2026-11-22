@@ -72,6 +72,9 @@ public:
     void resetEngine();                         /* 0x00238280 condition.resetEngine() */
     CarCondition *getCondition();               /* 0x002382A0 */
     void setCondition(const CarCondition *c);   /* 0x002382A8 */
+    /* PC: 0x214..0x218 is tail padding; on GCC / Clang i386 a member
+     * there keeps a derived class's data at +0x218, as MSVC lays it out. */
+    PC_TAIL_PAD(pcTail_214, 0x4)
 };
 EGCS_SIZE(CarInformation, 0x218);
 

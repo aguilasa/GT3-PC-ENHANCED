@@ -37,7 +37,7 @@ struct cp_eh_info {
     cleanup_fn  cleanup;                        /* 0x10 destructor or NULL */
     bool        caught;                         /* 0x14 (egcs bool: 4 bytes, lw / sw) */
     cp_eh_info *next;                           /* 0x18 next exception in flight */
-    long long   handlers;                       /* 0x20 `long`, 64-bit on the EE (ld / sd): active handlers */
+    s64         handlers;                       /* 0x20 `long`, 64-bit on the EE (ld / sd): active handlers */
     void       *original_value;                 /* 0x28 the object as allocated */
 };
 EGCS_SIZE(cp_eh_info, 0x30);

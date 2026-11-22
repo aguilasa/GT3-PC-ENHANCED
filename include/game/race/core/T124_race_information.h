@@ -82,6 +82,9 @@ public:
     int          countDown;                 /* 0x4C seconds; < 0 none, 0 the default */
     int          timeLimit;                 /* 0x50 seconds; < 0 none, 0 the default */
     /*  vptr                                   0x54 */
+    /* PC: 0x5C..0x60 is tail padding; on GCC / Clang i386 a member
+     * there keeps a derived class's data at +0x60, as MSVC lays it out. */
+    PC_TAIL_PAD(pcTail_5C, 0x4)
 };
 EGCS_SIZE(RaceInformation, 0x58);
 

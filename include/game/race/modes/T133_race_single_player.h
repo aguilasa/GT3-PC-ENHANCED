@@ -121,6 +121,9 @@ public:
 
     RaceInput input;                        /* 0x16D40 pad slot 0x14, inputId 0x100 */
     /*  0x16E88 .. 0x16EBF: alignment */
+    /* PC: 0x2AF88..0x2AFC0 is tail padding; on GCC / Clang i386 a member
+     * there keeps a derived class's data at +0x2AFC0, as MSVC lays it out. */
+    PC_TAIL_PAD(pcTail_2AF88, 0x38)
 };
 /* (Wave 1: the hud's RaceDisplay (0xA8E8, GT3 0xA47C) and the embedded race classes' growth; the size
  * from tools/sizeprobe.py, the member offsets above stay

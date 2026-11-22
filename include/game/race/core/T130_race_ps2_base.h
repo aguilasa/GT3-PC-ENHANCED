@@ -284,6 +284,9 @@ public:
     MirrorView       mirror;                /* 0xC6F4 (u044 / u046 viewRect[5]) */
     RaceInput        input;                 /* 0xC708 the pad manager's slot 0x15 */
     /*  0xC850 .. 0xC87F: alignment */
+    /* PC: 0x204E0..0x20500 is tail padding; on GCC / Clang i386 a member
+     * there keeps a derived class's data at +0x20500, as MSVC lays it out. */
+    PC_TAIL_PAD(pcTail_204E0, 0x20)
 };
 EGCS_SIZE(RacePS2Base, 0xC880);
 

@@ -129,6 +129,9 @@ public:
      * layoutMeters, RaceEventDisplay::addEvent) */
     bool       enabled : 8;                 /* 0x12 */
     /*  vptr                                   0x14 */
+    /* PC: 0x17..0x18 is tail padding; on GCC / Clang i386 a member
+     * there keeps a derived class's data at +0x18, as MSVC lays it out. */
+    PC_TAIL_PAD(pcTail_17, 0x1)
 };
 EGCS_SIZE(RaceDisplayObjectBase, 0x18);
 

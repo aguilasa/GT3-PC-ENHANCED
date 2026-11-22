@@ -70,6 +70,9 @@ public:
     f32          fov;                       /* 0x11C degrees, 55..85 */
     int          inZone;                    /* 0x120 the target is in a zone of mask 1 (getChangeLevel) */
     CameraWobble wobble[4];                 /* 0x124 the angles x, y, the position x, z */
+    /* PC: 0x154..0x180 is tail padding; on GCC / Clang i386 a member
+     * there keeps a derived class's data at +0x180, as MSVC lays it out. */
+    PC_TAIL_PAD(pcTail_154, 0x2C)
 };
 EGCS_SIZE(AutomountCamera, 0x180);
 

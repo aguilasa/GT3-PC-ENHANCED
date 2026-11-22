@@ -19,8 +19,11 @@
 /* PC: checked for the types whose layout does not depend on the compiler's
  * C++ ABI (no virtual functions): the plain records read from the game's
  * files and saves must keep the PS2 layout.  Polymorphic classes have
- * MSVC's own layout (vptr first). */
-#if defined(__cplusplus) && defined(_MSC_VER)
+ * the PC compiler's own layout (vptr first).  Checked by every PC C++
+ * compiler: MSVC, and GCC / Clang on i686, where types.h gives the 64-bit
+ * types MSVC's 8-byte alignment and PC_TAIL_PAD keeps derived classes out
+ * of their bases' tail padding. */
+#if defined(__cplusplus) && (defined(_MSC_VER) || (defined(__GNUC__) && defined(__i386__)))
 #include <type_traits>
 #define EGCS_SIZE(T, n) \
     static_assert(std::is_polymorphic<T>::value || sizeof(T) == (n), "PS2 size of " #T)

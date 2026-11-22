@@ -142,6 +142,9 @@ public:
     int           pcCustom;                 /* 0x168 PC (2026-11-14): the custom camera in view: its number among the
                                                car's (pc_customcam.h), 0 none; mount is then 0 or 1 by its type */
     /*  0x16C .. 0x17F: alignment (64) */
+    /* PC: 0x16C..0x180 is tail padding; on GCC / Clang i386 a member
+     * there keeps a derived class's data at +0x180, as MSVC lays it out. */
+    PC_TAIL_PAD(pcTail_16C, 0x14)
 };
 EGCS_SIZE(OnBoardCamera, 0x180);
 

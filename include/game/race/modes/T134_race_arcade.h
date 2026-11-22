@@ -79,6 +79,9 @@ public:
     RacePause    pause;                     /* 0x259E8 */
     ReplayPause  replayPause;               /* 0x25C94 (mode 0) */
     DynamicsConductorSinglePlayer dcSingle; /* 0x261D4 RaceBase::dc points here (never destroyed) */
+    /* PC: 0xA7AEC..0xA7B00 is tail padding; on GCC / Clang i386 a member
+     * there keeps a derived class's data at +0xA7B00, as MSVC lays it out. */
+    PC_TAIL_PAD(pcTail_A7AEC, 0x14)
 };
 /* The enhanced engine: its conductor (the last member) 0x1E0 longer (GT3
  * 0x34580). */

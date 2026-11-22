@@ -187,6 +187,9 @@ public:
     int              ghostTcs;              /* 0x219EC */
     int              ghostKept;             /* 0x219F0 1 once keepGhostCar has run (virtual_21 writes the car only then) */
     /*  0x219F4 .. 0x219FF: alignment */
+    /* PC: 0x35F8C..0x35FC0 is tail padding; on GCC / Clang i386 a member
+     * there keeps a derived class's data at +0x35FC0, as MSVC lays it out. */
+    PC_TAIL_PAD(pcTail_35F8C, 0x34)
 };
 /* The enhanced engine: the split display 8 longer (the members after
  * splitDisplay sit 8 later than shown) and the ghost car block, 0x200

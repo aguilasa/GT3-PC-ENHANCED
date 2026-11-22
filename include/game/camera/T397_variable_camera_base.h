@@ -192,6 +192,9 @@ public:
      * +0xE8, which moved its later fields up by 4; linkonce get / set L2
      * 0x002D08F8 / 0x002D0900). */
     f32   zoomMult;                         /* 0xF8 */
+    /* PC: 0xFC is tail padding; on GCC / Clang i386 a member there keeps a
+     * derived camera's data at +0x100 (MatrixCamera::rng). */
+    PC_TAIL_PAD(pcTail_FC, 4)
 
     f32   getZoomMult() { return zoomMult; }
     void  setZoomMult(f32 m) { zoomMult = m; }

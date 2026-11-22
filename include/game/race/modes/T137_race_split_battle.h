@@ -140,6 +140,9 @@ public:
      * the battle then drives instead of splitDisplay; NULL: splitDisplay. */
     RacePOD2PDisplay *podDisplay;           /* 0x3EC58 (in GT3's alignment) */
     /*  0x3EC5C .. 0x3EC7F: alignment */
+    /* PC: 0x7FFAC..0x7FFC0 is tail padding; on GCC / Clang i386 a member
+     * there keeps a derived class's data at +0x7FFC0, as MSVC lays it out. */
+    PC_TAIL_PAD(pcTail_7FFAC, 0x14)
 };
 /* The enhanced engine: its conductor 0x1E0 and its split display 8 longer:
  * the members after dc2P sit 0x1E0 later than shown, after splitDisplay

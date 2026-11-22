@@ -1141,7 +1141,10 @@ public:
     /* 0x1E4: tail padding, no member (u016): the class is 8-aligned
      * (CarSaveEquipments' u64), and the implicit copy constructor (T052's
      * setEquipments arguments, T151, T489) copies the members up to +0x1E4
-     * only; a u8[4] member there was copied byte by byte. */
+     * only; a u8[4] member there was copied byte by byte.
+     * PC: on GCC / Clang i386 a member there keeps CarInformation's
+     * CarSaveInformation base at +0x1E8. */
+    PC_TAIL_PAD(pcTail_1E4, 4)
 
     CarEquipments();                             /* 0x00231AB0 reset(), then copy(g_002EBD88) */
     virtual ~CarEquipments();                    /* [0] +0x0C 0x00231B38 */
