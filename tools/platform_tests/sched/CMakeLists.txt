@@ -20,6 +20,11 @@ set(CMAKE_CXX_EXTENSIONS ON)
 get_filename_component(GT3PC_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/../../.. ABSOLUTE)
 
 find_package(Threads REQUIRED)
+# SDL3 (i686, under ~/opt/i386): the timer thread's priority (raise_timer_priority).
+find_package(SDL3 CONFIG QUIET)
+if(NOT SDL3_FOUND)
+    find_package(SDL3 CONFIG REQUIRED PATHS $ENV{HOME}/opt/i386 NO_DEFAULT_PATH)
+endif()
 enable_testing()
 
 add_executable(sched_test
@@ -29,5 +34,5 @@ add_executable(sched_test
 )
 target_include_directories(sched_test PRIVATE ${GT3PC_ROOT}/include ${GT3PC_ROOT}/src)
 target_compile_options(sched_test PRIVATE -Wall -Wextra)
-target_link_libraries(sched_test PRIVATE Threads::Threads)
+target_link_libraries(sched_test PRIVATE SDL3::SDL3 Threads::Threads)
 add_test(NAME sched COMMAND sched_test)

@@ -24,9 +24,14 @@
 #include <float.h>
 #else
 #include "platform/fpu.h"
+#include <SDL3/SDL_hints.h>
+#include <SDL3/SDL_thread.h>
 #include <errno.h>
 #include <pthread.h>
+#include <sched.h>
+#include <sys/resource.h>
 #include <time.h>
+#include <unistd.h>
 #endif
 #include <stdio.h>
 #include <string.h>
@@ -552,12 +557,33 @@ void timer_sleep_until(double next)
     }
 }
 
-/* The timer thread's priority.  The Windows build makes it time-critical;
- * here it is the hook for SDL_SetCurrentThreadPriority
- * (SDL_THREAD_PRIORITY_TIME_CRITICAL) once SDL is linked in, and the
- * default priority until then. */
+/* The timer thread's priority, as the Windows build's
+ * THREAD_PRIORITY_TIME_CRITICAL: at the default priority, a busy host
+ * preempts the thread for milliseconds after its sleep ends and vblanks come
+ * late.  SDL asks for a real-time policy (SCHED_RR, with the hint below)
+ * itself and, when the process may not (a desktop user: RLIMIT_RTPRIO 0,
+ * no CAP_SYS_NICE), from RealtimeKit over D-Bus; without a real-time policy
+ * it falls back to a lower nice value.  The log says what was obtained. */
 void raise_timer_priority()
 {
+    SDL_SetHint(SDL_HINT_THREAD_FORCE_REALTIME_TIME_CRITICAL, "1");
+    const bool ok = SDL_SetCurrentThreadPriority(SDL_THREAD_PRIORITY_TIME_CRITICAL);
+    const char *why = ok ? "" : SDL_GetError();
+    /* The kernel's view of this thread (sched_getscheduler / sched_getparam
+     * with 0): glibc's pthread_getschedparam keeps what pthread_setschedparam
+     * set and misses a change made from outside (RealtimeKit's). */
+    const int policy = sched_getscheduler(0) & ~SCHED_RESET_ON_FORK;   /* (RealtimeKit adds it) */
+    sched_param sp = {};
+    sched_getparam(0, &sp);
+    errno = 0;
+    const int nice = getpriority(PRIO_PROCESS, (id_t)gettid());
+    const char *name = policy == SCHED_FIFO ? "SCHED_FIFO" : policy == SCHED_RR ? "SCHED_RR" : "SCHED_OTHER";
+    if (ok)
+        pclog::write("sched: timer thread %s, priority %d, nice %d", name, sp.sched_priority, errno ? 0 : nice);
+    else
+        pclog::write("sched: timer thread not raised (%s): %s, priority %d, nice %d; a real-time policy "
+                     "needs RLIMIT_RTPRIO, CAP_SYS_NICE or RealtimeKit", why, name, sp.sched_priority,
+                     errno ? 0 : nice);
 }
 #endif
 
