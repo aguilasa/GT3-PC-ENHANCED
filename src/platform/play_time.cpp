@@ -11,6 +11,7 @@
 #include <mutex>
 #include <string>
 #ifndef _WIN32
+#include "platform/fpu.h"
 #include <chrono>
 #include <condition_variable>
 #include <thread>
@@ -63,6 +64,9 @@ DWORD WINAPI writer(void *)
 #else
 void writer()
 {
+    /* (a pthread takes its creator's FPU mode: a game thread's would be the
+     * EE's) */
+    fpu::set_mode(fpu::kDefaultMode);
     std::unique_lock<std::mutex> lock(g_stopMutex);
     while (!g_stopCv.wait_for(lock, std::chrono::milliseconds(kWriteMs), [] { return g_stopping; })) {
         lock.unlock();

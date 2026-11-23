@@ -4,6 +4,9 @@
 #include "platform/ui_text.h"  /* PC (2026-11-16): the interface's languages */
 
 #include <string.h>
+#ifndef _WIN32
+#include "platform/os/win_compat.h"         /* _stricmp */
+#endif
 
 namespace volume {
 namespace {

@@ -86,3 +86,30 @@ target_include_directories(png_test PRIVATE ${GT3PC_ROOT}/src)
 target_compile_options(png_test PRIVATE -Wall -Wextra)
 target_link_libraries(png_test PRIVATE gt3_lodepng)
 add_test(NAME png COMMAND png_test)
+
+# The crash report (src/platform/posix/crash_posix.cpp): a child's SIGSEGV
+# reported with the guilty function's name, the control without the handler,
+# and another thread's stack (log_stack).  The log without SDL's message box.
+find_package(Threads REQUIRED)
+add_executable(crash_test crash_test.cpp ${GT3PC_ROOT}/src/platform/posix/crash_posix.cpp
+    ${GT3PC_ROOT}/src/platform/posix/log_posix.cpp ${GT3PC_ROOT}/src/platform/posix/memstat_posix.cpp)
+target_include_directories(crash_test PRIVATE ${GT3PC_ROOT}/src)
+target_compile_options(crash_test PRIVATE -Wall -Wextra)
+target_compile_definitions(crash_test PRIVATE GT3PC_LOG_NO_SDL)
+target_link_libraries(crash_test PRIVATE Threads::Threads ${CMAKE_DL_LIBS})
+add_test(NAME crash COMMAND crash_test)
+
+# The game heap's arena (src/platform/posix/heap_arena_posix.cpp): below
+# 0x80000000, the default size and GT3PC_HEAP_MB's.
+add_executable(arena_test arena_test.cpp ${GT3PC_ROOT}/src/platform/posix/heap_arena_posix.cpp
+    ${GT3PC_ROOT}/src/platform/posix/log_posix.cpp)
+target_include_directories(arena_test PRIVATE ${GT3PC_ROOT}/src)
+target_compile_options(arena_test PRIVATE -Wall -Wextra)
+target_compile_definitions(arena_test PRIVATE GT3PC_LOG_NO_SDL)
+target_link_libraries(arena_test PRIVATE Threads::Threads)
+add_test(NAME arena COMMAND arena_test)
+add_test(NAME arena_env COMMAND arena_test 1024)
+set_tests_properties(arena_env PROPERTIES ENVIRONMENT GT3PC_HEAP_MB=1024)
+
+# The game-thread scheduler and the FPU mode (sched/, also buildable alone).
+add_subdirectory(sched)

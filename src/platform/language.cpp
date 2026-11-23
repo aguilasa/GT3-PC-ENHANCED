@@ -10,6 +10,9 @@
 
 #include <mutex>
 #include <string>
+#ifndef _WIN32
+#include "platform/os/win_compat.h"         /* _stricmp */
+#endif
 
 namespace language {
 namespace {

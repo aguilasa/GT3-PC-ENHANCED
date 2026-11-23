@@ -139,13 +139,83 @@ target_compile_options(gt3_engine PRIVATE ${GT3_DECOMP_OPTIONS})
 target_compile_definitions(gt3_engine PRIVATE GT3_PC=1)
 
 if(NOT MSVC)
-    # GCC / Clang: only the decompiled code builds for now (gnu++17); the
-    # platform layer, the renderer, the sound and movie output and the
-    # executables are still Windows-only.
+    # GCC / Clang: the decompiled code (gnu++17) and the platform layer's
+    # files that are ported; the window, the input devices, the sound output,
+    # Direct3D (the renderer and the panels drawn with it), the movies and
+    # the executables are still Windows-only.
     set_target_properties(gt3_game gt3_engine PROPERTIES CXX_EXTENSIONS ON)
     # The interface's languages: tools/lang_sync and the catalogues' generated
     # source (cmake/languages.cmake), built already.
     include(${GT3PC_ROOT}/cmake/languages.cmake)
+
+    # ---- the platform layer off Windows: the portable files and the POSIX
+    # backends of platform/posix and platform/os.  SSE2 scalar floating point
+    # (-msse2 -mfpmath=sse) as the MSVC x86 build has by default: i686 code
+    # otherwise computes on the x87 stack, with extended precision and the
+    # x87 control word's rounding, and the values it hands the game (the
+    # settings, the input curves, the timing) would differ from Windows'.
+    set(GT3_PLATFORM_FLOAT_OPTIONS -msse2 -mfpmath=sse)
+    add_library(gt3_platform STATIC
+        # the files and folders (UTF-8 paths, names matched without case),
+        # the INI calls and the EUC-JP code page of the Windows API
+        platform/os/fs_posix.cpp
+        platform/os/ini_posix.cpp
+        platform/os/eucjp.cpp
+        # the log (and the standard error), the program's entry, the crash
+        # report, the heap's arena, the memory line, the clock
+        platform/posix/log_posix.cpp
+        platform/posix/run_posix.cpp
+        platform/posix/crash_posix.cpp
+        platform/posix/heap_arena_posix.cpp
+        platform/posix/memstat_posix.cpp
+        platform/posix/pc_time_posix.cpp
+        platform/posix/sample_prof_posix.cpp
+        platform/posix/file_alert_posix.cpp
+        platform/pc_libc.cpp
+        platform/paths.cpp
+        platform/settings.cpp
+        platform/language.cpp
+        platform/scheduler.cpp
+        platform/ee_kernel.cpp
+        platform/disc.cpp
+        platform/host_file.cpp
+        platform/disc_image.cpp
+        launcher/iso9660.cpp
+        launcher/volume.cpp
+        launcher/inflate.cpp
+        launcher/util.cpp
+        platform/input_map.cpp
+        platform/wheel.cpp
+        platform/clutch_input.cpp
+        platform/debug_camera.cpp
+        platform/memcard.cpp
+        platform/save_folders.cpp
+        platform/frame_step.cpp
+        platform/overlay_font.cpp
+        platform/osd.cpp
+        platform/hotkey_hint.cpp
+        platform/challenge_osd.cpp
+        platform/gcf_tables.cpp
+        platform/param_db.cpp
+        platform/param_schema.cpp
+        platform/sqlite_file.cpp
+        platform/play_time.cpp
+        platform/png_image.cpp
+        platform/ui_text.cpp
+    )
+    target_include_directories(gt3_platform PUBLIC ${GT3PC_ROOT}/include ${GT3PC_ROOT}/src)
+    target_compile_options(gt3_platform PRIVATE ${GT3_PLATFORM_FLOAT_OPTIONS})
+    set_target_properties(gt3_platform PROPERTIES CXX_EXTENSIONS ON)
+    # SDL3 (the locale, the message box; the controllers and the window
+    # later): a system package, else the i686 build in ~/opt/i386
+    find_package(SDL3 CONFIG QUIET)
+    if(NOT SDL3_FOUND)
+        find_package(SDL3 CONFIG REQUIRED PATHS $ENV{HOME}/opt/i386 NO_DEFAULT_PATH)
+    endif()
+    include(${GT3PC_ROOT}/cmake/sqlite.cmake)
+    include(${GT3PC_ROOT}/cmake/lodepng.cmake)
+    find_package(Threads REQUIRED)
+    target_link_libraries(gt3_platform PUBLIC gt3_sqlite gt3_lodepng SDL3::SDL3 Threads::Threads ${CMAKE_DL_LIBS})
     return()
 endif()
 

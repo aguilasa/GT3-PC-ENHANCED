@@ -8,6 +8,9 @@
 #include <cstdlib>
 #include <cstring>
 #include <map>
+#ifndef _WIN32
+#include "platform/os/win_compat.h"         /* _stricmp */
+#endif
 
 namespace gcftables {
 namespace {
