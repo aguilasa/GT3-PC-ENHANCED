@@ -6,7 +6,7 @@
 #include "platform/paths.h"
 #include "platform/ui_text.h"                  /* PC (2026-11-16): [Interface] Language */
 
-#include <windows.h>
+#include "platform/os/win_compat.h"
 
 #include <atomic>
 #include <limits.h>
