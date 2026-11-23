@@ -49,7 +49,11 @@
 #include "platform/ui_text_check.h"
 #include "platform/log.h"
 
+#ifdef _WIN32
 #include <windows.h>
+#else
+#include <unistd.h>
+#endif
 
 #include <algorithm>
 #include <cstdarg>
@@ -1006,20 +1010,30 @@ const char *english_name(const std::string &code)
  * from the standard input whatever it is (a test's file of answers, UTF-8). */
 bool is_console()
 {
+#ifdef _WIN32
     DWORD mode = 0;
     return GetConsoleMode(GetStdHandle(STD_INPUT_HANDLE), &mode) != 0;
+#else
+    return isatty(STDIN_FILENO) != 0;
+#endif
 }
 
 bool console_input()
 {
+#ifdef _WIN32
     char v[8];
     return is_console() || (GetEnvironmentVariableA("GT3PC_LANG_ASK_INPUT", v, sizeof(v)) > 0 && v[0] == '1');
+#else
+    const char *v = getenv("GT3PC_LANG_ASK_INPUT");
+    return is_console() || (v != nullptr && v[0] == '1');
+#endif
 }
 
 /* A line typed (UTF-8, without its end); false: the input ended. */
 bool read_line(std::string &out)
 {
     out.clear();
+#ifdef _WIN32
     if (!is_console()) {
         char b[8192];
         if (fgets(b, sizeof(b), stdin) == nullptr)
@@ -1032,6 +1046,24 @@ bool read_line(std::string &out)
         printf("%s\n", out.c_str());        /* (the answer as a person would see it typed) */
         return true;
     }
+#else
+    /* (a terminal's input is UTF-8 here: a line read as it is, echoed by
+     * the terminal itself) */
+    const bool console = is_console();
+    int ch;
+    while ((ch = fgetc(stdin)) != EOF && ch != '\n')
+        out += (char)ch;
+    if (ch == EOF && out.empty())
+        return false;
+    if (out.compare(0, 3, "\xEF\xBB\xBF") == 0)
+        out.erase(0, 3);                    /* (a pipe's byte order mark) */
+    while (!out.empty() && out.back() == '\r')
+        out.pop_back();
+    if (!console)
+        printf("%s\n", out.c_str());       /* (the answer as a person would see it typed) */
+    return true;
+#endif
+#ifdef _WIN32
     HANDLE in = GetStdHandle(STD_INPUT_HANDLE);
     std::wstring w;
     wchar_t buf[512];
@@ -1051,14 +1083,105 @@ bool read_line(std::string &out)
         WideCharToMultiByte(CP_UTF8, 0, w.data(), (int)w.size(), &out[0], len, nullptr, nullptr);
     }
     return true;
+#endif
 }
 
 /* The upper case of a UTF-8 string (the panels' strings: CharUpper's
  * Unicode cases - accents, Cyrillic). */
+#ifndef _WIN32
+/* CharUpper's simple (one character) upper case of the scripts the
+ * catalogues use: Latin-1, Latin Extended-A, Greek, Cyrillic; ß and the
+ * rest as they are. */
+unsigned upper_cp(unsigned c)
+{
+    if (c >= 'a' && c <= 'z')
+        return c - 0x20;
+    if (c < 0x80)
+        return c;
+    if (c == 0xB5)
+        return 0x39C;                           /* micro sign: Greek MU */
+    if ((c >= 0xE0 && c <= 0xFE && c != 0xF7))
+        return c - 0x20;
+    if (c == 0xFF)
+        return 0x178;
+    if (c >= 0x100 && c <= 0x17F) {
+        if (c == 0x131)
+            return 'I';                         /* dotless i */
+        if (c == 0x17F)
+            return 'S';                         /* long s */
+        if (c == 0x138 || c == 0x149)
+            return c;                           /* kra, 'n: no upper case */
+        const bool oddLower = (c >= 0x139 && c <= 0x148) || (c >= 0x179 && c <= 0x17E);
+        if (oddLower)
+            return (c & 1) == 0 ? c - 1 : c;
+        return (c & 1) != 0 ? c - 1 : c;
+    }
+    if (c >= 0x3B1 && c <= 0x3CB && c != 0x3C2)
+        return c - 0x20;                        /* Greek */
+    if (c == 0x3C2)
+        return 0x3A3;                           /* final sigma */
+    if (c == 0x3AC)
+        return 0x386;
+    if (c >= 0x3AD && c <= 0x3AF)
+        return c - 0x25;
+    if (c == 0x3CC)
+        return 0x38C;
+    if (c == 0x3CD || c == 0x3CE)
+        return c - 0x3F;
+    if (c >= 0x430 && c <= 0x44F)
+        return c - 0x20;                        /* Cyrillic */
+    if (c >= 0x450 && c <= 0x45F)
+        return c - 0x50;
+    if ((c >= 0x460 && c <= 0x481) || (c >= 0x48A && c <= 0x4BF) || (c >= 0x4D0 && c <= 0x52F))
+        return (c & 1) != 0 ? c - 1 : c;
+    if (c >= 0x4C1 && c <= 0x4CE)
+        return (c & 1) == 0 ? c - 1 : c;
+    if (c == 0x4CF)
+        return 0x4C0;
+    return c;
+}
+#endif
+
 std::string upper_utf8(const std::string &s)
 {
     if (s.empty())
         return s;
+#ifndef _WIN32
+    std::string out;
+    out.reserve(s.size());
+    for (size_t i = 0; i < s.size();) {
+        const unsigned char b = (unsigned char)s[i];
+        const size_t n = b < 0x80 ? 1 : (b & 0xE0) == 0xC0 ? 2 : (b & 0xF0) == 0xE0 ? 3 : (b & 0xF8) == 0xF0 ? 4 : 0;
+        bool ok = n != 0 && i + n <= s.size();
+        unsigned c = n == 1 ? b : n == 2 ? b & 0x1Fu : n == 3 ? b & 0x0Fu : b & 0x07u;
+        for (size_t k = 1; ok && k < n; k++) {
+            ok = ((unsigned char)s[i + k] & 0xC0) == 0x80;
+            c = (c << 6) | ((unsigned char)s[i + k] & 0x3Fu);
+        }
+        if (!ok) {
+            out += s[i++];                      /* (not UTF-8: the byte as it is) */
+            continue;
+        }
+        i += n;
+        c = upper_cp(c);
+        if (c < 0x80) {
+            out += (char)c;
+        } else if (c < 0x800) {
+            out += (char)(0xC0 | (c >> 6));
+            out += (char)(0x80 | (c & 0x3F));
+        } else if (c < 0x10000) {
+            out += (char)(0xE0 | (c >> 12));
+            out += (char)(0x80 | ((c >> 6) & 0x3F));
+            out += (char)(0x80 | (c & 0x3F));
+        } else {
+            out += (char)(0xF0 | (c >> 18));
+            out += (char)(0x80 | ((c >> 12) & 0x3F));
+            out += (char)(0x80 | ((c >> 6) & 0x3F));
+            out += (char)(0x80 | (c & 0x3F));
+        }
+    }
+    return out;
+#else
     int n = MultiByteToWideChar(CP_UTF8, 0, s.data(), (int)s.size(), nullptr, 0);
     std::wstring w((size_t)n, L'\0');
     MultiByteToWideChar(CP_UTF8, 0, s.data(), (int)s.size(), &w[0], n);
@@ -1067,6 +1190,7 @@ std::string upper_utf8(const std::string &s)
     std::string out((size_t)n, '\0');
     WideCharToMultiByte(CP_UTF8, 0, w.data(), (int)w.size(), &out[0], n, nullptr, nullptr);
     return out;
+#endif
 }
 
 std::string trim_ascii(const std::string &s)
@@ -1499,7 +1623,9 @@ int usage()
 
 int main(int argc, char **argv)
 {
+#ifdef _WIN32
     SetConsoleOutputCP(CP_UTF8);
+#endif
     const char *rootArg = nullptr, *buildDir = nullptr, *todo = nullptr, *fillCode = nullptr, *fillFile = nullptr,
                *newCode = nullptr, *outArg = nullptr;
     bool checkOnly = false, json = false, quiet = false, askMode = false, statusMode = false;

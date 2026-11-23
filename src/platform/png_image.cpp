@@ -1,6 +1,8 @@
-/* png_image.cpp - PNG files through the Windows Imaging Component (png_image.h). */
+/* png_image.cpp - PNG files through the Windows Imaging Component
+ * (png_image.h); elsewhere through LodePNG (cmake/lodepng.cmake). */
 #include "platform/png_image.h"
 
+#ifdef _WIN32
 #include <windows.h>
 #include <wincodec.h>
 
@@ -180,3 +182,121 @@ bool Session::encode_file(const std::wstring &path, const uint8_t *rgba, int w, 
 }
 
 } // namespace png_image
+#else /* !_WIN32 */
+
+#include "platform/os/fs.h"
+
+#include <lodepng.h>
+
+#include <cmath>
+#include <cstring>
+
+namespace png_image {
+namespace {
+
+/* (the pixels per metre of a square pixel, as WIC writes 96 dots per inch:
+ * only the ratio of x and y means anything) */
+constexpr double kPerMetre = 96.0 / 0.0254;
+
+bool decode_png(const void *data, size_t size, std::vector<uint8_t> *rgba, int *w, int *h, double *aspect)
+{
+    if (data == nullptr || size == 0 || size > 0xFFFFFFFFu || rgba == nullptr)
+        return false;
+    lodepng::State state;
+    state.info_raw.colortype = LCT_RGBA;
+    state.info_raw.bitdepth = 8;
+    unsigned fw = 0, fh = 0;
+    const unsigned char *in = static_cast<const unsigned char *>(data);
+    /* the size first: a picture too big is not decoded */
+    if (lodepng_inspect(&fw, &fh, &state, in, size) != 0 || fw == 0 || fh == 0 || fw > (unsigned)kMaxSide ||
+        fh > (unsigned)kMaxSide || (uint64_t)fw * fh * 4 > kMaxBytes)
+        return false;
+    std::vector<unsigned char> out;
+    if (lodepng::decode(out, fw, fh, state, in, size) != 0 || out.size() != (size_t)fw * fh * 4)
+        return false;
+    rgba->swap(out);
+    *w = (int)fw;
+    *h = (int)fh;
+    if (aspect != nullptr) {
+        /* WIC's GetResolution: dy / dx; a pHYs of an unknown unit (0) still
+         * gives the pixels' shape */
+        const LodePNGInfo &info = state.info_png;
+        *aspect = info.phys_defined && info.phys_x > 0 && info.phys_y > 0 ? (double)info.phys_y / info.phys_x : 1.0;
+    }
+    return true;
+}
+
+bool encode_png(const std::wstring &path, const uint8_t *rgba, int w, int h, double aspect, bool alpha)
+{
+    if (rgba == nullptr || w <= 0 || h <= 0 || !(aspect > 0.0))
+        return false;
+    const size_t n = alpha ? 4 : 3;
+    const size_t pixels = (size_t)w * h;
+    std::vector<unsigned char> px(pixels * n);
+    for (size_t i = 0; i < pixels; i++)
+        memcpy(&px[i * n], &rgba[i * 4], n);
+    lodepng::State state;
+    state.info_raw.colortype = alpha ? LCT_RGBA : LCT_RGB;
+    state.info_raw.bitdepth = 8;
+    state.info_png.color.colortype = state.info_raw.colortype;
+    state.info_png.color.bitdepth = 8;
+    state.encoder.auto_convert = 0;
+    /* WIC's SetResolution(96 / aspect, 96): x dots per inch over y's */
+    state.info_png.phys_defined = 1;
+    state.info_png.phys_unit = 1;
+    state.info_png.phys_x = (unsigned)std::lround(kPerMetre / aspect);
+    state.info_png.phys_y = (unsigned)std::lround(kPerMetre);
+    if (state.info_png.phys_x == 0)
+        return false;
+    std::vector<unsigned char> png;
+    if (lodepng::encode(png, px, (unsigned)w, (unsigned)h, state) != 0 || png.size() > 0xFFFFFFFFu)
+        return false;
+    const std::string target = fs::narrow(path);
+    const std::string part = target + ".part";
+    bool ok;
+    {
+        fs::File f;
+        ok = f.open(part, fs::kWrite, fs::Create::create_always, fs::kShareNone) &&
+             f.write_at(0, png.data(), (uint32_t)png.size()) == (int)png.size();
+    }
+    if (ok)
+        ok = fs::rename_replace(part, target);
+    if (!ok)
+        fs::remove_file(part);
+    return ok;
+}
+
+} // namespace
+
+bool decode(const void *data, size_t size, std::vector<uint8_t> *rgba, int *w, int *h, double *aspect)
+{
+    return decode_png(data, size, rgba, w, h, aspect);
+}
+
+bool encode_file(const std::wstring &path, const uint8_t *rgba, int w, int h, double aspect, bool alpha)
+{
+    return encode_png(path, rgba, w, h, aspect, alpha);
+}
+
+/* (no COM, no factory: a session is the calls above) */
+Session::Session() : com_(false), wic_(nullptr) {}
+
+Session::~Session()
+{
+    (void)com_;
+    (void)wic_;
+}
+
+bool Session::decode(const void *data, size_t size, std::vector<uint8_t> *rgba, int *w, int *h, double *aspect)
+{
+    return decode_png(data, size, rgba, w, h, aspect);
+}
+
+bool Session::encode_file(const std::wstring &path, const uint8_t *rgba, int w, int h, double aspect, bool alpha)
+{
+    return encode_png(path, rgba, w, h, aspect, alpha);
+}
+
+} // namespace png_image
+
+#endif /* _WIN32 */

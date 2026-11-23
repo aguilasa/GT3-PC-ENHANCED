@@ -1,6 +1,8 @@
 /* png_image.h - PNG files through the Windows Imaging Component, for the game
  * and the launcher (docs/movies.md "Stills").  Any thread: each call holds COM
- * for itself.  No game headers: game code can include it. */
+ * for itself.  Elsewhere through LodePNG (cmake/lodepng.cmake), with the same
+ * physical size (pHYs) written and read.  No game headers: game code can
+ * include it. */
 #pragma once
 
 #include <cstddef>
@@ -44,7 +46,7 @@ public:
 
 private:
     bool com_;
-    void *wic_;                             /* IWICImagingFactory (no Windows headers here) */
+    void *wic_;                             /* IWICImagingFactory (no Windows headers here); null elsewhere */
 };
 
 } // namespace png_image

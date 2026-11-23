@@ -1,10 +1,32 @@
 /* ui_text.cpp - GT3 PC's own interface in other languages (ui_text.h).
- * PC (2026-11-16). */
+ * PC (2026-11-16).
+ *
+ * Windows: the catalogues are the executable's GT3LANG resources and the
+ * language is the user's display language.  Elsewhere: the catalogues are
+ * byte arrays of a generated source (cmake/embed_languages.cmake, built into
+ * the executable; a program without it - tools/lang_sync - has none) and the
+ * language is the first of the session's preferred ones SDL reports that is
+ * one of kLangs (SDL 3.2 on Unix: LANG, then LANGUAGE's list);
+ * GT3PC_UI_TEXT_NO_SDL (a program without SDL) reads those variables itself,
+ * in the same order. */
 #include "platform/ui_text.h"
 #include "platform/log.h"
 #include "platform/ui_text_check.h"           /* the rule a translation keeps (tools/lang_sync's too) */
 
+#ifdef _WIN32
 #include <windows.h>
+#else
+#include <strings.h>
+#include <cwchar>
+#ifndef GT3PC_UI_TEXT_NO_SDL
+#include <SDL3/SDL_locale.h>
+#include <SDL3/SDL_stdinc.h>
+#endif
+/* The generated catalogues (cmake/embed_languages.cmake): lang/<code>.po's
+ * bytes and size, null for a code without one.  Weak: a program that does
+ * not link the generated source has no catalogue (the call is not made). */
+extern "C" const unsigned char *gt3pc_ui_text_catalogue(const char *code, size_t *size) __attribute__((weak));
+#endif
 
 #include <atomic>
 #include <cctype>
@@ -24,8 +46,15 @@ namespace {
 struct Lang {
     const char *value, *code, *native, *upper;
     const wchar_t *nativeW;
-    WORD primary;                               /* Windows' primary language id */
+    unsigned short primary;                     /* Windows' primary language id */
 };
+#ifndef _WIN32
+/* (Windows' primary language ids, winnt.h: only kept for the table) */
+enum : unsigned short {
+    LANG_ENGLISH = 0x09, LANG_FRENCH = 0x0c, LANG_GERMAN = 0x07, LANG_ITALIAN = 0x10, LANG_SPANISH = 0x0a,
+    LANG_JAPANESE = 0x11, LANG_RUSSIAN = 0x19, LANG_PORTUGUESE = 0x16, LANG_POLISH = 0x15
+};
+#endif
 const Lang kLangs[kCount] = {
     {"english", "en", "English", "ENGLISH", L"English", LANG_ENGLISH},
     {"french", "fr", "Français", "FRANÇAIS", L"Français", LANG_FRENCH},
@@ -53,6 +82,7 @@ std::mutex g_load;
 std::atomic<const Catalogue *> g_cur{nullptr};
 std::atomic<int> g_lang{kEnglish};
 
+#ifdef _WIN32
 std::wstring widen(const std::string &s)
 {
     if (s.empty())
@@ -62,6 +92,58 @@ std::wstring widen(const std::string &s)
     MultiByteToWideChar(CP_UTF8, 0, s.data(), (int)s.size(), &w[0], n);
     return w;
 }
+#else
+/* UTF-8 as UTF-32 (wchar_t here); a malformed sequence becomes U+FFFD */
+std::wstring widen(const std::string &s)
+{
+    std::wstring w;
+    w.reserve(s.size());
+    const unsigned char *p = (const unsigned char *)s.data(), *end = p + s.size();
+    while (p < end) {
+        const unsigned c = *p;
+        unsigned cp = 0xFFFD;
+        int n = c < 0x80 ? 0 : c >= 0xC2 && c < 0xE0 ? 1 : c >= 0xE0 && c < 0xF0 ? 2 : c >= 0xF0 && c < 0xF5 ? 3 : -1;
+        if (n < 0 || end - p <= n) {
+            p++;
+        } else {
+            unsigned v = n == 0 ? c : c & (0x3Fu >> n);
+            bool ok = true;
+            for (int i = 1; i <= n; i++) {
+                if ((p[i] & 0xC0) != 0x80) {
+                    ok = false;
+                    break;
+                }
+                v = (v << 6) | (p[i] & 0x3Fu);
+            }
+            static const unsigned kMin[4] = {0, 0x80, 0x800, 0x10000};
+            if (ok && v >= kMin[n] && v <= 0x10FFFF && (v < 0xD800 || v > 0xDFFF)) {
+                cp = v;
+                p += n + 1;
+            } else {
+                p++;
+            }
+        }
+        w += (wchar_t)cp;
+    }
+    return w;
+}
+
+/* The catalogue's file under GT3PC_LANG_DIR, whole; false: none */
+bool read_whole(const std::string &path, std::string &out)
+{
+    FILE *f = fopen(path.c_str(), "rb");
+    if (f == nullptr)
+        return false;
+    char b[65536];
+    size_t n;
+    out.clear();
+    while ((n = fread(b, 1, sizeof(b), f)) > 0)
+        out.append(b, n);
+    const bool ok = ferror(f) == 0;
+    fclose(f);
+    return ok;
+}
+#endif
 
 /* A quoted .po string's text (C escapes) appended to out; false: no string. */
 bool unquote(const char *p, const char *end, std::string &out)
@@ -178,6 +260,7 @@ const Catalogue *load(int lang)
         return g_cats[lang];
     Catalogue *c = new Catalogue;
     const char *code = kLangs[lang].code;
+#ifdef _WIN32
     char dir[MAX_PATH];
     const DWORD n = GetEnvironmentVariableA("GT3PC_LANG_DIR", dir, sizeof(dir));
     if (n > 0 && n < sizeof(dir)) {
@@ -212,6 +295,27 @@ const Catalogue *load(int lang)
         }
         pclog::write("ui_text: %s: %d translations%s", code, c->count, c->present ? "" : " (no catalogue built in)");
     }
+#else
+    const char *dir = getenv("GT3PC_LANG_DIR");
+    if (dir != nullptr && dir[0] != '\0') {
+        /* a translator's aid: the folder's file instead of the built-in one */
+        const std::string path = std::string(dir) + "/" + code + ".po";
+        std::string buf;
+        if (read_whole(path, buf)) {
+            parse(*c, buf.data(), buf.size(), code);
+            c->present = true;
+        }
+        pclog::write("ui_text: %s: %s (GT3PC_LANG_DIR): %d translations", code, path.c_str(), c->count);
+    } else if (lang != kEnglish) {
+        size_t size = 0;
+        const unsigned char *data = gt3pc_ui_text_catalogue != nullptr ? gt3pc_ui_text_catalogue(code, &size) : nullptr;
+        if (data != nullptr) {
+            parse(*c, (const char *)data, size, code);
+            c->present = true;
+        }
+        pclog::write("ui_text: %s: %d translations%s", code, c->count, c->present ? "" : " (no catalogue built in)");
+    }
+#endif
     g_cats[lang] = c;
     return c;
 }
@@ -219,7 +323,11 @@ const Catalogue *load(int lang)
 int from_value_a(const char *v)
 {
     for (int i = 0; i < kCount; i++)
+#ifdef _WIN32
         if (_stricmp(v, kLangs[i].value) == 0)
+#else
+        if (strcasecmp(v, kLangs[i].value) == 0)
+#endif
             return i;
     return kAuto;
 }
@@ -266,6 +374,7 @@ const wchar_t *native_name_w(int lang)
     return lang >= 0 && lang < kCount ? kLangs[lang].nativeW : L"";
 }
 
+#ifdef _WIN32
 int windows_language()
 {
     const WORD primary = PRIMARYLANGID(GetUserDefaultUILanguage());
@@ -274,6 +383,59 @@ int windows_language()
             return i;
     return kEnglish;
 }
+#else
+namespace {
+/* The language of a locale's name ("pt_BR.UTF-8", "pt-BR", "de"): as
+ * Windows' primary language id, only the language part counts (Portuguese
+ * of Portugal is kPortuguese as well); kAuto: none of these. */
+int locale_language(const char *name)
+{
+    size_t n = 0;
+    while (name[n] != '\0' && name[n] != '_' && name[n] != '-' && name[n] != '.' && name[n] != '@' && name[n] != ':')
+        n++;
+    for (int i = 0; i < kCount; i++) {
+        const char *c = kLangs[i].code;
+        size_t m = 0;
+        while (c[m] != '\0' && c[m] != '_')
+            m++;
+        if (m == n && strncasecmp(name, c, n) == 0)
+            return i;
+    }
+    return kAuto;
+}
+} // namespace
+
+int windows_language()
+{
+#ifndef GT3PC_UI_TEXT_NO_SDL
+    int count = 0;
+    SDL_Locale **locales = SDL_GetPreferredLocales(&count);
+    int found = kAuto;
+    for (int i = 0; locales != nullptr && i < count && found == kAuto; i++)
+        if (locales[i] != nullptr && locales[i]->language != nullptr)
+            found = locale_language(locales[i]->language);
+    SDL_free(locales);
+    return found != kAuto ? found : kEnglish;
+#else
+    /* (SDL's order on Unix: LANG, then LANGUAGE's list; "C" / "POSIX" are
+     * no language) */
+    const char *lang = getenv("LANG");
+    if (lang != nullptr && lang[0] != '\0') {
+        const int l = locale_language(lang);
+        if (l != kAuto)
+            return l;
+    }
+    for (const char *p = getenv("LANGUAGE"); p != nullptr && *p != '\0';) {
+        const int l = locale_language(p);
+        if (l != kAuto)
+            return l;
+        p = strchr(p, ':');
+        p = p != nullptr ? p + 1 : nullptr;
+    }
+    return kEnglish;
+#endif
+}
+#endif
 
 int resolve(int setting)
 {
@@ -327,7 +489,11 @@ std::string trf(const char *english, ...)
     const char *f = ui_text::tr(english);
     va_list ap;
     va_start(ap, english);
+#ifdef _WIN32
     const int n = _vscprintf(f, ap);
+#else
+    const int n = vsnprintf(nullptr, 0, f, ap);
+#endif
     va_end(ap);
     if (n <= 0)
         return std::string();
@@ -338,8 +504,68 @@ std::string trf(const char *english, ...)
     return out;
 }
 
+#ifndef _WIN32
+namespace {
+/* A wide format in MSVC's meaning as the C library's: there a wide format's
+ * %s / %c are wide (%hs / %hc and %S / %C narrow), in ISO C they are narrow
+ * (%ls / %lc wide). */
+std::wstring iso_wide_format(const wchar_t *f)
+{
+    std::wstring out;
+    for (const wchar_t *p = f; *p != L'\0';) {
+        if (*p != L'%') {
+            out += *p++;
+            continue;
+        }
+        out += *p++;
+        if (*p == L'%') {
+            out += *p++;
+            continue;
+        }
+        while (*p != L'\0' && wcschr(L"-+ #0123456789.*'", *p) != nullptr)
+            out += *p++;
+        std::wstring length;
+        while (*p != L'\0' && wcschr(L"hlwLjztIq", *p) != nullptr)
+            length += *p++;
+        if (*p == L'\0')
+            break;
+        const wchar_t conv = *p++;
+        if (conv == L's' || conv == L'c' || conv == L'S' || conv == L'C') {
+            const wchar_t lower = conv == L'S' ? L's' : conv == L'C' ? L'c' : conv;
+            const bool wide = length == L"l" || length == L"w" || (length.empty() && conv == lower);
+            out += wide ? L"l" : L"";
+            out += lower;
+        } else {
+            out += length;
+            out += conv;
+        }
+    }
+    return out;
+}
+} // namespace
+#endif
+
 std::wstring trf(const wchar_t *english, ...)
 {
+#ifndef _WIN32
+    const std::wstring iso = iso_wide_format(ui_text::tr(english));
+    const wchar_t *f = iso.c_str();
+    /* (no size query in vswprintf: a larger buffer until it fits) */
+    std::wstring buf(256, L'\0');
+    for (;;) {
+        va_list ap;
+        va_start(ap, english);
+        const int n = vswprintf(&buf[0], buf.size(), f, ap);
+        va_end(ap);
+        if (n >= 0 && (size_t)n < buf.size()) {
+            buf.resize((size_t)n);
+            return buf;
+        }
+        if (buf.size() >= (1u << 20))
+            return std::wstring();
+        buf.resize(buf.size() * 4);
+    }
+#else
     const wchar_t *f = ui_text::tr(english);
     va_list ap;
     va_start(ap, english);
@@ -352,4 +578,5 @@ std::wstring trf(const wchar_t *english, ...)
     vswprintf(&out[0], (size_t)n + 1, f, ap);
     va_end(ap);
     return out;
+#endif
 }

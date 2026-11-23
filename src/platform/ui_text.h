@@ -15,7 +15,8 @@
  * The catalogues: lang/<code>.po (gettext's format; msgid the English, msgstr
  * the translation), built into gt3launcher.exe and gt3pc.exe as resources of
  * the type GT3LANG named as the code upper case ("FR", "PT_BR":
- * cmake/languages.cmake).  tools/lang_sync, built and run by every build,
+ * cmake/languages.cmake); off Windows into the executables as byte arrays of
+ * a generated source (cmake/embed_languages.cmake).  tools/lang_sync, built and run by every build,
  * extracts the tr / trf / N_ strings from the sources into
  * lang/template.pot, brings every .po up to date (new strings empty, changed
  * ones marked fuzzy with their old translation, gone ones kept as obsolete),
@@ -65,7 +66,10 @@ const char *native_name(int lang);
 const char *native_upper(int lang);
 const wchar_t *native_name_w(int lang);
 
-/* Windows' display language as one of these (kEnglish when it is none). */
+/* Windows' display language as one of these (kEnglish when it is none);
+ * elsewhere the first of the session's preferred languages that is one of
+ * these (SDL_GetPreferredLocales: LANG, then LANGUAGE's list; the language
+ * part only, as Windows' primary language id). */
 int windows_language();
 /* The language a setting stands for (kAuto: windows_language()). */
 int resolve(int setting);

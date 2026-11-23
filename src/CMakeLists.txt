@@ -143,6 +143,9 @@ if(NOT MSVC)
     # platform layer, the renderer, the sound and movie output and the
     # executables are still Windows-only.
     set_target_properties(gt3_game gt3_engine PROPERTIES CXX_EXTENSIONS ON)
+    # The interface's languages: tools/lang_sync and the catalogues' generated
+    # source (cmake/languages.cmake), built already.
+    include(${GT3PC_ROOT}/cmake/languages.cmake)
     return()
 endif()
 
