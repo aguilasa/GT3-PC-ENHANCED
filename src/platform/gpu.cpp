@@ -1,4 +1,13 @@
-/* gpu.cpp - the Direct3D 11 device of GT3 PC (gpu.h). */
+/* gpu.cpp - the Direct3D 11 device of GT3 PC (gpu.h).
+ *
+ * Off Windows the device is DXVK-native's, on the SDL3 window (window.h: the
+ * HWND is the SDL_Window *, as DXVK's SDL3 WSI takes it; DXVK_WSI_DRIVER is
+ * set to SDL3 before the device is made, unless the environment has one).
+ * The monitors are SDL's displays (an HMONITOR is an SDL_DisplayID, as for
+ * DXVK and window::set_full_monitor), their refresh rates SDL's current
+ * display modes, and exclusive fullscreen the display mode the window module
+ * sets through SDL (window.h): the swap chain stays windowed over it and
+ * takes the mode's size. */
 #include "platform/gpu.h"
 #include "platform/frame_monitor.h"
 #include "platform/frame_pacing.h"
@@ -7,10 +16,18 @@
 #include "platform/settings.h"
 #include "platform/window.h"
 
+#ifdef _WIN32
 #include <d3dcompiler.h>
+#endif
 #include <dxgi1_5.h>
 #ifndef _WIN32
 #include "engine/pgl/native/shader_blobs.h"   /* (no D3DCompile: the shaders compiled offline) */
+
+#include <SDL3/SDL.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <strings.h>
 #endif
 
 #include <algorithm>
@@ -81,6 +98,85 @@ std::vector<int> g_order;
 std::vector<int> g_canvasX, g_canvasW;
 int g_canvasTotal;
 
+#ifdef _WIN32
+/* The game window's monitor. */
+HMONITOR own_monitor()
+{
+    return MonitorFromWindow(g_hwnd, MONITOR_DEFAULTTONEAREST);
+}
+#else
+/* (GetTickCount64's milliseconds, from SDL) */
+ULONGLONG GetTickCount64()
+{
+    return (ULONGLONG)SDL_GetTicks();
+}
+
+SDL_Window *sdl_window()
+{
+    return (SDL_Window *)g_hwnd;
+}
+
+SDL_DisplayID display_of(HMONITOR m)
+{
+    return (SDL_DisplayID)(uintptr_t)m;
+}
+
+/* The game window's monitor: its display (the primary one before it has
+ * one). */
+HMONITOR own_monitor()
+{
+    SDL_DisplayID d = g_hwnd != nullptr ? SDL_GetDisplayForWindow(sdl_window()) : 0;
+    if (d == 0)
+        d = SDL_GetPrimaryDisplay();
+    return (HMONITOR)(uintptr_t)d;
+}
+
+/* The window module's exclusive fullscreen (window.h): the window full
+ * screen in a display mode of its own (SDL_SetWindowFullscreenMode). */
+bool sdl_exclusive()
+{
+    SDL_Window *w = sdl_window();
+    return w != nullptr && (SDL_GetWindowFlags(w) & SDL_WINDOW_FULLSCREEN) != 0 &&
+           SDL_GetWindowFullscreenMode(w) != nullptr;
+}
+
+/* A WCHAR string (UTF-32 here) in UTF-8, cut to n bytes. */
+void utf8(const WCHAR *w, char *out, size_t n)
+{
+    size_t at = 0;
+    for (; *w != 0; w++) {
+        const uint32_t c = (uint32_t)*w;
+        char b[4];
+        size_t k;
+        if (c < 0x80) {
+            b[0] = (char)c;
+            k = 1;
+        } else if (c < 0x800) {
+            b[0] = (char)(0xC0 | (c >> 6));
+            b[1] = (char)(0x80 | (c & 0x3F));
+            k = 2;
+        } else if (c < 0x10000) {
+            b[0] = (char)(0xE0 | (c >> 12));
+            b[1] = (char)(0x80 | ((c >> 6) & 0x3F));
+            b[2] = (char)(0x80 | (c & 0x3F));
+            k = 3;
+        } else {
+            b[0] = (char)(0xF0 | ((c >> 18) & 0x07));
+            b[1] = (char)(0x80 | ((c >> 12) & 0x3F));
+            b[2] = (char)(0x80 | ((c >> 6) & 0x3F));
+            b[3] = (char)(0x80 | (c & 0x3F));
+            k = 4;
+        }
+        if (at + k >= n)
+            break;
+        memcpy(out + at, b, k);
+        at += k;
+    }
+    if (n > 0)
+        out[at] = 0;
+}
+#endif
+
 void release_backbuffer()
 {
     if (g_rtv) {
@@ -147,6 +243,7 @@ void apply_vsync()
  * settings (the OS's mode nearest to it; the desktop's size when the
  * settings give none, 60 Hz when they give no rate).  false: left as it was
  * (logged). */
+#ifdef _WIN32
 bool enter_fullscreen()
 {
     IDXGIOutput *out = nullptr;
@@ -202,11 +299,48 @@ bool enter_fullscreen()
     out->Release();
     return true;
 }
+#else
+/* Off Windows the window module has set the mode (window::apply_mode: the
+ * settings' mode nearest to it by SDL_GetClosestFullscreenDisplayMode):
+ * the swap chain, windowed over it, takes the mode's size.  false: the
+ * window is not in a display mode of its own (an X11 display without a
+ * window manager gives a borderless window over the display instead). */
+bool enter_fullscreen()
+{
+    SDL_Window *win = sdl_window();
+    const SDL_DisplayMode *got = SDL_GetWindowFullscreenMode(win);
+    if (!sdl_exclusive() || got == nullptr) {
+        pclog::write("gpu: no exclusive fullscreen: the window has no display mode of its own");
+        return false;
+    }
+    const int w = (int)std::lround(got->w * (got->pixel_density > 0.0f ? got->pixel_density : 1.0f));
+    const int h = (int)std::lround(got->h * (got->pixel_density > 0.0f ? got->pixel_density : 1.0f));
+    resize(w, h);
+    g_fullscreenW = w;
+    g_fullscreenH = h;
+    g_fullscreenHz = got->refresh_rate_denominator > 0
+                         ? (double)got->refresh_rate_numerator / got->refresh_rate_denominator
+                         : (double)got->refresh_rate;
+    /* what the display runs (logged: a different size is a stretched
+     * picture) */
+    const SDL_DisplayID d = SDL_GetDisplayForWindow(win);
+    const char *dev = SDL_GetDisplayName(d);
+    const SDL_DisplayMode *cur = SDL_GetCurrentDisplayMode(d);
+    if (cur != nullptr)
+        pclog::write("gpu: fullscreen on %s: %dx%d, %.2f Hz (the display runs %dx%d, %.2f Hz)%s", dev ? dev : "?", w,
+                     h, g_fullscreenHz, cur->w, cur->h, (double)cur->refresh_rate,
+                     cur->w != got->w || cur->h != got->h ? ": NOT THE MODE ASKED" : "");
+    else
+        pclog::write("gpu: fullscreen on %s: %dx%d, %.2f Hz", dev ? dev : "?", w, h, g_fullscreenHz);
+    return true;
+}
+#endif
 
 /* ======================================================================== */
 /* Extra screens                                                            */
 /* ======================================================================== */
 
+#ifdef _WIN32
 struct MonitorEntry {
     HMONITOR monitor;
     RECT rect;
@@ -251,6 +385,99 @@ const MonitorEntry *find_monitor(const std::vector<MonitorEntry> &all, const cha
     return nullptr;
 }
 
+/* The device name of a monitor, UTF-8. */
+void monitor_name(const MonitorEntry &m, char *out, size_t n)
+{
+    WideCharToMultiByte(CP_UTF8, 0, m.device, -1, out, (int)n, nullptr, nullptr);
+}
+
+/* The desktop rectangle of a monitor ({} when not known). */
+RECT monitor_rect(HMONITOR m)
+{
+    RECT r = {};
+    MONITORINFO mi = {};
+    mi.cbSize = sizeof(mi);
+    if (GetMonitorInfoW(m, &mi))
+        r = mi.rcMonitor;
+    return r;
+}
+#else
+/* Off Windows: SDL's displays, the device name SDL's (\\.\DISPLAYn as the
+ * Windows ini gives it names the n-th display of SDL's list). */
+struct MonitorEntry {
+    HMONITOR monitor;
+    RECT rect;
+    char device[64];
+    int index;                      /* (1, 2, ... in SDL's order) */
+};
+
+std::vector<MonitorEntry> monitors()
+{
+    static std::vector<MonitorEntry> s_all;
+    static ULONGLONG s_when;
+    const ULONGLONG now = GetTickCount64();
+    if (s_when == 0 || now - s_when >= 1000) {
+        s_all.clear();
+        int n = 0;
+        SDL_DisplayID *ids = SDL_GetDisplays(&n);
+        for (int i = 0; ids != nullptr && i < n; i++) {
+            SDL_Rect b;
+            if (!SDL_GetDisplayBounds(ids[i], &b))
+                continue;
+            MonitorEntry e = {};
+            e.monitor = (HMONITOR)(uintptr_t)ids[i];
+            e.rect.left = b.x;
+            e.rect.top = b.y;
+            e.rect.right = b.x + b.w;
+            e.rect.bottom = b.y + b.h;
+            const char *name = SDL_GetDisplayName(ids[i]);
+            snprintf(e.device, sizeof(e.device), "%s", name != nullptr ? name : "");
+            e.index = i + 1;
+            s_all.push_back(e);
+        }
+        SDL_free(ids);
+        s_when = now;
+    }
+    return s_all;
+}
+
+/* The monitor of a name: SDL's display name, or \\.\DISPLAYn (DISPLAYn). */
+const MonitorEntry *find_monitor(const std::vector<MonitorEntry> &all, const char *name)
+{
+    for (const MonitorEntry &e : all)
+        if (strcasecmp(e.device, name) == 0)
+            return &e;
+    const char *p = name;
+    if (strncmp(p, "\\\\.\\", 4) == 0)
+        p += 4;
+    if (strncasecmp(p, "DISPLAY", 7) == 0 && p[7] >= '1' && p[7] <= '9') {
+        const int k = atoi(p + 7);
+        for (const MonitorEntry &e : all)
+            if (e.index == k)
+                return &e;
+    }
+    return nullptr;
+}
+
+void monitor_name(const MonitorEntry &m, char *out, size_t n)
+{
+    snprintf(out, n, "%s", m.device);
+}
+
+RECT monitor_rect(HMONITOR m)
+{
+    RECT r = {};
+    SDL_Rect b;
+    if (SDL_GetDisplayBounds(display_of(m), &b)) {
+        r.left = b.x;
+        r.top = b.y;
+        r.right = b.x + b.w;
+        r.bottom = b.y + b.h;
+    }
+    return r;
+}
+#endif
+
 /* The span's monitors (gt3pc.ini SpanMonitors, those connected), left to
  * right; fewer than 2: no span. */
 std::vector<MonitorEntry> span_monitors(const std::vector<MonitorEntry> &all)
@@ -281,7 +508,7 @@ std::vector<MonitorEntry> span_monitors(const std::vector<MonitorEntry> &all)
  * else the middle one (the left of the middle two). */
 HMONITOR span_main(const std::vector<MonitorEntry> &span)
 {
-    const HMONITOR own = MonitorFromWindow(g_hwnd, MONITOR_DEFAULTTONEAREST);
+    const HMONITOR own = own_monitor();
     for (const MonitorEntry &e : span)
         if (e.monitor == own)
             return own;
@@ -353,8 +580,8 @@ bool open_screen(const MonitorEntry &m)
         return false;
     }
     g_factory->MakeWindowAssociation(s.hwnd, DXGI_MWA_NO_ALT_ENTER | DXGI_MWA_NO_WINDOW_CHANGES);
-    char dev[32];
-    WideCharToMultiByte(CP_UTF8, 0, m.device, -1, dev, sizeof(dev), nullptr, nullptr);
+    char dev[64];
+    monitor_name(m, dev, sizeof(dev));
     pclog::write("gpu: screen on %s (%dx%d at %ld,%ld), borderless", dev, w, h, m.rect.left, m.rect.top);
     g_extra.push_back(s);
     return true;
@@ -381,11 +608,7 @@ void canvas_layout()
     for (int i = 0; i < n; i++)
         g_order[(size_t)i] = i;
     if (g_span) {
-        RECT own = {};
-        MONITORINFO mi = {};
-        mi.cbSize = sizeof(mi);
-        if (GetMonitorInfoW(MonitorFromWindow(g_hwnd, MONITOR_DEFAULTTONEAREST), &mi))
-            own = mi.rcMonitor;
+        const RECT own = monitor_rect(own_monitor());
         std::sort(g_order.begin(), g_order.end(), [&](int a, int b) {
             const long la = a == 0 ? own.left : g_extra[(size_t)a - 1].rect.left;
             const long lb = b == 0 ? own.left : g_extra[(size_t)b - 1].rect.left;
@@ -419,7 +642,7 @@ void wanted_screens(std::vector<MonitorEntry> &want, bool &span)
     const std::vector<MonitorEntry> all = monitors();
     want.clear();
     span = false;
-    const HMONITOR own = MonitorFromWindow(g_hwnd, MONITOR_DEFAULTTONEAREST);
+    const HMONITOR own = own_monitor();
     if (g_mode != settings::DisplayMode::windowed) {
         const std::vector<MonitorEntry> s = span_monitors(all);
         if (std::any_of(s.begin(), s.end(), [&](const MonitorEntry &e) { return e.monitor == own; })) {
@@ -488,7 +711,9 @@ void suspend_fullscreen(bool on)
         return;
     g_fsSuspended = on;
     if (on) {
+#ifdef _WIN32
         g_swap->SetFullscreenState(FALSE, nullptr);
+#endif
         window::apply_mode(settings::DisplayMode::borderless);
         g_forceResize = true;
         pclog::write("gpu: exclusive fullscreen suspended: borderless for now");
@@ -508,7 +733,9 @@ void set_mode(settings::DisplayMode m)
         return;
     g_fsSuspended = false;                  /* (taken again by the next frame if still wanted) */
     if (g_mode == settings::DisplayMode::fullscreen) {
+#ifdef _WIN32
         g_swap->SetFullscreenState(FALSE, nullptr);
+#endif
         g_forceResize = true;
     }
     place_for_span(m);
@@ -525,6 +752,10 @@ void set_mode(settings::DisplayMode m)
 bool init(HWND window)
 {
     g_hwnd = window;
+#ifndef _WIN32
+    /* DXVK-native's window system: SDL3's (read when the device is made) */
+    setenv("DXVK_WSI_DRIVER", "SDL3", 0);
+#endif
     UINT flags = D3D11_CREATE_DEVICE_BGRA_SUPPORT;
 #ifdef GT3PC_D3D_DEBUG
     flags |= D3D11_CREATE_DEVICE_DEBUG;
@@ -551,8 +782,17 @@ bool init(HWND window)
     DXGI_ADAPTER_DESC ad;
     adapter->GetDesc(&ad);
     char name[128];
+#ifdef _WIN32
     WideCharToMultiByte(CP_UTF8, 0, ad.Description, -1, name, sizeof(name), nullptr, nullptr);
     pclog::write("gpu: %s, feature level %X", name, (unsigned)got);
+#else
+    utf8(ad.Description, name, sizeof(name));
+    /* (DXVK's adapter: the Vulkan device's name and memory heaps; the vendor
+     * id may be another's, dxgi.hideNvidiaGpu) */
+    pclog::write("gpu: %s (DXVK, vendor %04X device %04X), feature level %X, video memory %u MB, shared %u MB", name,
+                 (unsigned)ad.VendorId, (unsigned)ad.DeviceId, (unsigned)got,
+                 (unsigned)(ad.DedicatedVideoMemory >> 20), (unsigned)(ad.SharedSystemMemory >> 20));
+#endif
 
     /* presenting without vsync in a window: the tearing support (Windows 10
      * and later, with the driver's; a variable refresh display then follows
@@ -630,6 +870,23 @@ bool init(HWND window)
 
 ID3D11Device *device() { return g_device; }
 IDXGIAdapter *adapter() { return g_adapter; }   /* PC (2026-11-07) */
+
+bool video_memory(uint64_t *localUsed, uint64_t *localBudget, uint64_t *nonLocalUsed)
+{
+    IDXGIAdapter3 *a3 = nullptr;
+    if (g_adapter == nullptr || FAILED(g_adapter->QueryInterface(__uuidof(IDXGIAdapter3), (void **)&a3)))
+        return false;
+    DXGI_QUERY_VIDEO_MEMORY_INFO local = {}, shared = {};
+    const bool ok = SUCCEEDED(a3->QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &local)) &&
+                    SUCCEEDED(a3->QueryVideoMemoryInfo(0, DXGI_MEMORY_SEGMENT_GROUP_NON_LOCAL, &shared));
+    a3->Release();
+    if (!ok)
+        return false;
+    *localUsed = local.CurrentUsage;
+    *localBudget = local.Budget;
+    *nonLocalUsed = shared.CurrentUsage;
+    return true;
+}
 /* (set_context_guard) */
 static void (*g_contextGuard)();
 
@@ -667,12 +924,18 @@ ID3D11RenderTargetView *backbuffer()
      * back once it is active again */
     BOOL fs = FALSE;
     if (g_mode == settings::DisplayMode::fullscreen && !g_fsSuspended) {
+#ifdef _WIN32
         g_swap->GetFullscreenState(&fs, nullptr);
         static ULONGLONG lastTry = 0;
         if (!fs && window::active() && GetTickCount64() - lastTry >= 1000) {
             lastTry = GetTickCount64();
             fs = enter_fullscreen();
         }
+#else
+        /* (SDL takes the window's display mode again itself when it is
+         * active again) */
+        fs = sdl_exclusive();
+#endif
     }
     /* the back buffer: the display mode's size in exclusive fullscreen (the
      * window's size can lag behind a mode change: the window thread's
@@ -780,8 +1043,13 @@ static void present_call(void *)
     /* Without vsync: ALLOW_TEARING in a window (not valid in exclusive
      * fullscreen, which presents at once by itself) */
     BOOL fs = FALSE;
-    if (g_mode == settings::DisplayMode::fullscreen)
+    if (g_mode == settings::DisplayMode::fullscreen) {
+#ifdef _WIN32
         g_swap->GetFullscreenState(&fs, nullptr);
+#else
+        fs = sdl_exclusive();
+#endif
+    }
     g_lastExclusive = fs != FALSE;
     /* the extra screens first (the game window's present is the one that
      * waits: vsync, the frame queue) */
@@ -833,6 +1101,7 @@ double refresh_hz()
         return hz;
     last = now;
     lastMode = g_mode;
+#ifdef _WIN32
     BOOL fs = FALSE;
     if (g_mode == settings::DisplayMode::fullscreen && g_fullscreenHz > 1.0 &&
         SUCCEEDED(g_swap->GetFullscreenState(&fs, nullptr)) && fs) {
@@ -848,6 +1117,15 @@ double refresh_hz()
         hz = (double)dm.dmDisplayFrequency;
     else
         hz = 60.0;
+#else
+    if (g_mode == settings::DisplayMode::fullscreen && g_fullscreenHz > 1.0 && sdl_exclusive()) {
+        hz = g_fullscreenHz;
+        return hz;
+    }
+    /* the current display mode of the window's display (SDL's) */
+    const SDL_DisplayMode *dm = SDL_GetCurrentDisplayMode(display_of(own_monitor()));
+    hz = dm != nullptr && dm->refresh_rate > 1.0f ? (double)dm->refresh_rate : 60.0;
+#endif
     return hz;
 }
 

@@ -141,8 +141,9 @@ target_compile_definitions(gt3_engine PRIVATE GT3_PC=1)
 if(NOT MSVC)
     # GCC / Clang: the decompiled code (gnu++17) and the platform layer's
     # files that are ported (the window, the controllers and the sound output
-    # on SDL3); Direct3D (the renderer and the panels drawn with it), the
-    # movies and the executables are still Windows-only.
+    # on SDL3, the Direct3D device on DXVK-native); the rest of the renderer
+    # (and the panels drawn with it), the movies and the executables are
+    # still Windows-only.
     set_target_properties(gt3_game gt3_engine PROPERTIES CXX_EXTENSIONS ON)
     # The interface's languages: tools/lang_sync and the catalogues' generated
     # source (cmake/languages.cmake), built already.
@@ -215,6 +216,9 @@ if(NOT MSVC)
         platform/audio_stage.cpp
         platform/sdl/audio_sdl.cpp
         ${GT3PC_ROOT}/third_party_src/dr_mp3/dr_mp3.c
+        # the Direct3D 11 device, its swap chains and the monitors (DXVK-native
+        # on the SDL3 window; the shaders compiled offline: shader_blobs.h)
+        platform/gpu.cpp
     )
     set_source_files_properties(platform/sdl/window_sdl.cpp PROPERTIES
         COMPILE_DEFINITIONS GT3PC_WINDOW_ICON="${GT3PC_ROOT}/gt3pc.ico"
@@ -230,8 +234,12 @@ if(NOT MSVC)
     endif()
     include(${GT3PC_ROOT}/cmake/sqlite.cmake)
     include(${GT3PC_ROOT}/cmake/lodepng.cmake)
+    # DXVK-native's D3D11 and DXGI: a system package, else the i686 build in
+    # ~/opt/i386 (cmake/dxvk.cmake)
+    include(${GT3PC_ROOT}/cmake/dxvk.cmake)
     find_package(Threads REQUIRED)
-    target_link_libraries(gt3_platform PUBLIC gt3_sqlite gt3_lodepng SDL3::SDL3 Threads::Threads ${CMAKE_DL_LIBS})
+    target_link_libraries(gt3_platform PUBLIC gt3_sqlite gt3_lodepng SDL3::SDL3 gt3_dxvk Threads::Threads
+        ${CMAKE_DL_LIBS})
     # the native SPU2 / BGM player (standard C++, its own options), with the
     # platform layer's SSE2 floating point
     add_subdirectory(engine/sound/native)

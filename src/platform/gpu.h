@@ -6,11 +6,17 @@
  * own; the window thread never touches it.  The renderer's D3D thread uses
  * it while it has calls queued: every use through here waits for them first
  * (set_context_guard).  Shaders are compiled at start
- * from HLSL text (d3dcompiler_47, part of Windows). */
+ * from HLSL text (d3dcompiler_47, part of Windows).
+ *
+ * Off Windows: DXVK-native's Direct3D 11 on the SDL3 window, the shaders
+ * compiled offline (engine/pgl/native/shader_blobs.h), the monitors SDL's
+ * displays and exclusive fullscreen the window module's SDL display mode
+ * (gpu.cpp). */
 #pragma once
 
 #include <d3d11.h>
 #include <dxgi1_2.h>
+#include <stdint.h>
 
 namespace gpu {
 
@@ -20,6 +26,10 @@ ID3D11DeviceContext *context();
 /* PC (2026-11-07): the device's adapter (nullptr before init): the memory
  * line's DXGI query (platform/memstat.h). */
 IDXGIAdapter *adapter();
+/* The GPU memory DXGI counts for this process, bytes: in use on the card
+ * and its budget, in use in system memory (false before init or when the
+ * adapter has no IDXGIAdapter3). */
+bool video_memory(uint64_t *localUsed, uint64_t *localBudget, uint64_t *nonLocalUsed);
 /* A function run first whenever the context or the swap chain is used
  * through here (context, backbuffer, screen_backbuffer, present): the
  * renderer's D3D thread runs what it has queued (engine/pgl/native/

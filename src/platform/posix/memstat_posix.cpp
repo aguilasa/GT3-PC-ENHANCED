@@ -4,7 +4,9 @@
  * the private writable mappings (VmData: data, heaps, stacks, the arena)
  * and "working set" what is resident (VmRSS).  Read by open / read, no
  * allocation, no stdio stream: the crash report calls it from its signal
- * handler.  No GPU part yet. */
+ * handler (which asks for no GPU part).  The GPU part as on Windows, from
+ * DXGI (DXVK-native's, gpu::video_memory) when the program has the GPU
+ * module: a weak reference, so the programs without it (the tests) link. */
 #include "platform/memstat.h"
 
 #include <fcntl.h>
@@ -13,6 +15,10 @@
 #include <string.h>
 #include <sys/utsname.h>
 #include <unistd.h>
+
+namespace gpu {
+bool video_memory(uint64_t *localUsed, uint64_t *localBudget, uint64_t *nonLocalUsed) __attribute__((weak));
+} // namespace gpu
 
 namespace memstat {
 namespace {
@@ -98,7 +104,6 @@ uint32_t virtual_mb()
 
 void line(char *out, size_t n, bool withGpu)
 {
-    (void)withGpu;                          /* (no GPU counters here yet) */
     if (n == 0)
         return;
     out[0] = '\0';
@@ -107,8 +112,12 @@ void line(char *out, size_t n, bool withGpu)
         put(out, n, 0, "not known");
         return;
     }
-    put(out, n, 0, "virtual %u MB of %u, private %u MB, working set %u MB", (unsigned)(s.sizeKb >> 10),
-        (unsigned)total_mb(), (unsigned)(s.dataKb >> 10), (unsigned)(s.rssKb >> 10));
+    size_t at = put(out, n, 0, "virtual %u MB of %u, private %u MB, working set %u MB", (unsigned)(s.sizeKb >> 10),
+                    (unsigned)total_mb(), (unsigned)(s.dataKb >> 10), (unsigned)(s.rssKb >> 10));
+    uint64_t local = 0, budget = 0, shared = 0;
+    if (withGpu && gpu::video_memory != nullptr && gpu::video_memory(&local, &budget, &shared))
+        at = put(out, n, at, "; GPU local %u MB of %u, non-local %u MB", (unsigned)(local >> 20),
+                 (unsigned)(budget >> 20), (unsigned)(shared >> 20));
 }
 
 } // namespace memstat

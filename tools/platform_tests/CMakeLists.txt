@@ -147,6 +147,37 @@ else()
     message(STATUS "window_test: no SDL3; not built")
 endif()
 
+# The Direct3D 11 device on DXVK-native (src/platform/gpu.cpp) on the SDL3
+# window: the device made, 120 frames cleared with a colour and presented
+# (the colour read back), the frame rate with and without vsync, and
+# exclusive fullscreen applied and left (`gpu_test modes', not run by
+# ctest: a display that can change its mode).  It needs a display and a
+# Vulkan device: without a display it is skipped (exit 77).  DXVK-native
+# from cmake/dxvk.cmake (a system package, else ~/opt/i386), its libraries
+# found at run time through LD_LIBRARY_PATH (set for ctest).
+set(GT3PC_DXVK_OPTIONAL ON)
+include(${GT3PC_ROOT}/cmake/dxvk.cmake)
+if(SDL3_FOUND AND TARGET gt3_dxvk)
+    add_executable(gpu_test gpu_test.cpp ${GT3PC_ROOT}/src/platform/gpu.cpp
+        ${GT3PC_ROOT}/src/platform/sdl/window_sdl.cpp ${GT3PC_ROOT}/src/platform/gamepad.cpp
+        ${GT3PC_ROOT}/src/platform/input_map.cpp ${GT3PC_ROOT}/src/platform/ui_text.cpp
+        ${GT3PC_ROOT}/src/platform/os/ini_posix.cpp ${GT3PC_ROOT}/src/platform/png_image.cpp
+        ${GT3PC_ROOT}/src/platform/os/fs_posix.cpp ${GT3PC_ROOT}/src/platform/posix/memstat_posix.cpp)
+    target_include_directories(gpu_test PRIVATE ${GT3PC_ROOT}/src)
+    target_compile_options(gpu_test PRIVATE -Wall -Wextra)
+    target_link_libraries(gpu_test PRIVATE gt3_dxvk SDL3::SDL3 gt3_lodepng Threads::Threads)
+    set(_gt3pc_gpu_path "${GT3PC_DXVK_LIBDIR}")
+    if(TARGET SDL3::SDL3-shared)
+        string(APPEND _gt3pc_gpu_path ":$<TARGET_FILE_DIR:SDL3::SDL3-shared>")
+    endif()
+    set(_gt3pc_gpu_env "LD_LIBRARY_PATH=${_gt3pc_gpu_path}" "SDL_AUDIO_DRIVER=dummy")
+    add_test(NAME gpu_frames COMMAND gpu_test frames 120)
+    add_test(NAME gpu_frames_vsync COMMAND gpu_test frames 120 --vsync 1)
+    set_tests_properties(gpu_frames gpu_frames_vsync PROPERTIES ENVIRONMENT "${_gt3pc_gpu_env}" SKIP_RETURN_CODE 77)
+else()
+    message(STATUS "gpu_test: no SDL3 or no DXVK-native; not built")
+endif()
+
 # The game-thread scheduler and the FPU mode (sched/, also buildable alone).
 add_subdirectory(sched)
 
