@@ -140,9 +140,9 @@ target_compile_definitions(gt3_engine PRIVATE GT3_PC=1)
 
 if(NOT MSVC)
     # GCC / Clang: the decompiled code (gnu++17) and the platform layer's
-    # files that are ported (the window on SDL3); the controllers, the sound
-    # output, Direct3D (the renderer and the panels drawn with it), the movies
-    # and the executables are still Windows-only.
+    # files that are ported (the window and the sound output on SDL3); the
+    # controllers, Direct3D (the renderer and the panels drawn with it), the
+    # movies and the executables are still Windows-only.
     set_target_properties(gt3_game gt3_engine PROPERTIES CXX_EXTENSIONS ON)
     # The interface's languages: tools/lang_sync and the catalogues' generated
     # source (cmake/languages.cmake), built already.
@@ -205,6 +205,13 @@ if(NOT MSVC)
         # the game window, its keyboard and mouse (SDL3; the icon gt3pc.ico
         # built in, as the Windows resource has it)
         platform/sdl/window_sdl.cpp
+        # the race's song panel (its text folded without the Windows calls)
+        platform/song_osd.cpp
+        # the sound output: SDL3 in pull mode through the output stage
+        # shared with Windows, and the .mp3 decoder of the BGM (dr_mp3)
+        platform/audio_stage.cpp
+        platform/sdl/audio_sdl.cpp
+        ${GT3PC_ROOT}/third_party_src/dr_mp3/dr_mp3.c
     )
     set_source_files_properties(platform/sdl/window_sdl.cpp PROPERTIES
         COMPILE_DEFINITIONS GT3PC_WINDOW_ICON="${GT3PC_ROOT}/gt3pc.ico"
@@ -222,6 +229,11 @@ if(NOT MSVC)
     include(${GT3PC_ROOT}/cmake/lodepng.cmake)
     find_package(Threads REQUIRED)
     target_link_libraries(gt3_platform PUBLIC gt3_sqlite gt3_lodepng SDL3::SDL3 Threads::Threads ${CMAKE_DL_LIBS})
+    # the native SPU2 / BGM player (standard C++, its own options), with the
+    # platform layer's SSE2 floating point
+    add_subdirectory(engine/sound/native)
+    target_compile_options(gt3_sound_native PRIVATE ${GT3_PLATFORM_FLOAT_OPTIONS})
+    target_link_libraries(gt3_platform PUBLIC gt3_sound_native)
     return()
 endif()
 
@@ -273,6 +285,7 @@ add_library(gt3_platform STATIC
     platform/settings_menu.cpp
     platform/system_menu.cpp
     platform/audio.cpp
+    platform/audio_stage.cpp
     platform/audio_ks.cpp
     platform/crash.cpp
     platform/gcf_tables.cpp

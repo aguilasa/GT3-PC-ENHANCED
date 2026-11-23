@@ -17,7 +17,11 @@
  * uses no game kernel call. */
 #include "engine/pdi/T521_pdibgm.h"
 #include "engine/pdi/pdi_internal.h"
+#ifdef _WIN32
 #include "engine/media/native/mp4_movie.h"      /* PC: Mp4AudioReader, MfScope: an .mp3 */
+#else
+#include "../../../third_party_src/dr_mp3/dr_mp3.h"   /* PC: an .mp3 off Windows */
+#endif
 #include "engine/sound/native/bgm_files.h"      /* PC: bgm_probe (an .mp3's length) */
 #include "engine/sound/native/sound_native.h"
 #include "platform/disc.h"
@@ -112,17 +116,14 @@ int bgm_source_read(void *user, uint32_t offset, void *dst, uint32_t size)
     return disc::read_bytes(s->base + offset, dst, size) ? (int)size : -1;
 }
 
+#ifdef _WIN32
 /* PC: an .mp3 (docs/sound.md 2.4): Media Foundation decodes it
  * (Mp4AudioReader), on the BGM player's feeder thread, which opens it too
  * (snd_native_bgm_start_decoded: nothing of it on the game thread but its
  * head). */
 struct Mp3Bgm {
     gt3media::Mp4AudioReader reader;
-#ifdef _WIN32
     wchar_t path[1024];                         /* (UTF-16: a song's name can be any) */
-#else
-    char path[4096];                            /* (UTF-8: a song's name can be any) */
-#endif
     std::vector<int16_t> pcm;
     size_t pos;
 };
@@ -201,11 +202,7 @@ int mp3_start(const char *hostName, const spu2::BgmFileInfo &info, int loop, con
         return -1;
     g_mp3 = new Mp3Bgm();
     g_mp3->pos = 0;
-#ifdef _WIN32
     const int full = host_file_full_path_w(hostName, g_mp3->path, sizeof(g_mp3->path) / sizeof(wchar_t));
-#else
-    const int full = host_file_full_path_utf8(hostName, g_mp3->path, sizeof(g_mp3->path));
-#endif
     if (full != 0) {
         delete g_mp3;
         g_mp3 = NULL;
@@ -219,6 +216,115 @@ int mp3_start(const char *hostName, const spu2::BgmFileInfo &info, int loop, con
     dec.seek = mp3_seek;
     return snd_native_bgm_start_decoded_from(&dec, loop, from);
 }
+
+#else /* !_WIN32 */
+
+/* PC: an .mp3 off Windows (docs/sound.md 2.4): dr_mp3 (third_party_src/
+ * dr_mp3) decodes it on the BGM player's feeder thread, which opens it too,
+ * reading the file through bgm_source_read (the source pdibgm_start opened). */
+struct Mp3Bgm {
+    drmp3 dec;
+    bool opened = false;
+    uint32_t at = 0;                            /* the decoder's position in the file */
+
+    ~Mp3Bgm()
+    {
+        if (opened)
+            drmp3_uninit(&dec);
+    }
+};
+
+Mp3Bgm *g_mp3 = NULL;
+
+size_t mp3_source_read(void *user, void *dst, size_t bytes)
+{
+    Mp3Bgm *m = (Mp3Bgm *)user;
+    const int n = bgm_source_read(&g_bgmSource, m->at, dst, (uint32_t)bytes);
+    if (n <= 0)
+        return 0;
+    m->at += (uint32_t)n;
+    return (size_t)n;
+}
+
+drmp3_bool32 mp3_source_seek(void *user, int offset, drmp3_seek_origin origin)
+{
+    Mp3Bgm *m = (Mp3Bgm *)user;
+    const int64_t base = origin == DRMP3_SEEK_SET ? 0 : origin == DRMP3_SEEK_CUR ? (int64_t)m->at
+                                                                                 : (int64_t)g_bgmSource.size;
+    const int64_t to = base + offset;
+    if (to < 0 || to > (int64_t)g_bgmSource.size)
+        return DRMP3_FALSE;
+    m->at = (uint32_t)to;
+    return DRMP3_TRUE;
+}
+
+drmp3_bool32 mp3_source_tell(void *user, drmp3_int64 *cursor)
+{
+    *cursor = ((Mp3Bgm *)user)->at;
+    return DRMP3_TRUE;
+}
+
+/* On the feeder thread: opened, its length the frames counted (bgm_probe:
+ * the whole file read when its head has no count). */
+int mp3_open(void *user, int *rate, int *channels, uint64_t *frames)
+{
+    Mp3Bgm *m = (Mp3Bgm *)user;
+    m->at = 0;
+    if (!drmp3_init(&m->dec, mp3_source_read, mp3_source_seek, mp3_source_tell, NULL, m, NULL)) {
+        printf("pdibgm: the .mp3 does not decode\n");
+        return 0;
+    }
+    m->opened = true;
+    if (m->dec.sampleRate == 0 || m->dec.channels < 1 || m->dec.channels > 2) {
+        printf("pdibgm: the .mp3 has %u channels at %u Hz: not played\n", (unsigned)m->dec.channels,
+               (unsigned)m->dec.sampleRate);
+        return 0;
+    }
+    *rate = (int)m->dec.sampleRate;
+    *channels = (int)m->dec.channels;
+    spu2::BgmFileInfo info;
+    *frames = spu2::bgm_probe(bgm_source_read, &g_bgmSource, g_bgmSource.size, &info) && info.rate != 0
+                  ? (uint64_t)info.frames * (uint64_t)*rate / info.rate
+                  : 0;
+    return 1;
+}
+
+int mp3_read(void *user, float *out, int max)
+{
+    Mp3Bgm *m = (Mp3Bgm *)user;
+    return max > 0 ? (int)drmp3_read_pcm_frames_f32(&m->dec, (drmp3_uint64)max, out) : 0;
+}
+
+int mp3_rewind(void *user)
+{
+    return drmp3_seek_to_pcm_frame(&((Mp3Bgm *)user)->dec, 0) ? 1 : 0;
+}
+
+/* On the feeder thread, before the first read (g_pcFrom). */
+int mp3_seek(void *user, uint64_t frame)
+{
+    return drmp3_seek_to_pcm_frame(&((Mp3Bgm *)user)->dec, (drmp3_uint64)frame) ? 1 : 0;
+}
+
+/* The source an .mp3 (info: its head's probe); started through dr_mp3,
+ * opened by the feeder thread (mp3_open), from `from': 0, -1 when it is not
+ * one.  (One that does not open plays nothing, as a file that is no music.) */
+int mp3_start(const char *hostName, const spu2::BgmFileInfo &info, int loop, const SndNativeBgmFrom *from)
+{
+    (void)hostName;                             /* (read through g_bgmSource) */
+    if (info.kind != spu2::BgmKind::mp3)
+        return -1;
+    g_mp3 = new Mp3Bgm();
+    SndNativeBgmDecoder dec = {};
+    dec.user = g_mp3;
+    dec.open = mp3_open;
+    dec.read = mp3_read;
+    dec.rewind = mp3_rewind;
+    dec.seek = mp3_seek;
+    return snd_native_bgm_start_decoded_from(&dec, loop, from);
+}
+
+#endif /* _WIN32 */
 
 } // namespace
 

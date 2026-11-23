@@ -1,5 +1,5 @@
-/* audio.cpp - the sound output of GT3 PC (audio.h): kernel streaming, WASAPI
- * as the fallback. */
+/* audio.cpp - the sound output of GT3 PC (audio.h) on Windows: kernel
+ * streaming, WASAPI as the fallback (the output stage: audio_stage.h). */
 #include "platform/audio.h"
 
 #include <windows.h>
@@ -25,6 +25,7 @@
 
 #include "engine/sound/native/sound_native.h"
 #include "platform/audio_ks.h"
+#include "platform/audio_stage.h"
 #include "platform/frame_step.h"
 #include "platform/input_map.h"
 #include "platform/log.h"
@@ -36,19 +37,11 @@
 namespace audio {
 namespace {
 
-constexpr int kRate = 48000;                    /* the SPU2's rate */
-constexpr float kMasterGain = 0.63f;            /* -4 dB: the game's sound (not the music files) */
-constexpr float kDcPole = 0.9995f;              /* DC blocker pole: -3 dB at ~3.8 Hz */
-constexpr float kLimit = 1.0f;                  /* the limiter's ceiling: 0 dBFS (a music file alone: untouched) */
-constexpr float kLimitRelease = 2.08e-4f;       /* its gain back to 1 per sample: 100 ms (1 - e^(-1/4800)) */
 constexpr int kNoDeviceStepMs = 5;              /* without a device: the render's pace */
 constexpr ULONGLONG kRetryMs = 2000;            /* without a device: the next try */
-constexpr int kMaxFrames = 16384;               /* a render call's frames at most (a converter's source) */
 constexpr double kCrackleStepMs = 0.5;          /* a crackle raises the buffer by this */
 constexpr double kCrackleGrace = 0.5;           /* s after a start whose underruns do not count (the start's) */
 constexpr ULONGLONG kVolumePollMs = 50;         /* kernel streaming: the Windows volumes read this often */
-constexpr float kVolumeGlide = 0.005f;          /* the volume's step to a new value per sample (~4 ms) */
-constexpr float kPauseFade = 1.0f / 240.0f;     /* the tick step's fade a sample (5 ms) */
 
 enum Mode { MODE_NONE, MODE_KS, MODE_WASAPI };
 
@@ -61,7 +54,6 @@ std::atomic<int> g_mode{MODE_NONE};
 std::atomic<double> g_latencyMs{0.0};
 std::atomic<bool> g_ksBusy{false};              /* Output=ks and kernel streaming could not start */
 std::atomic<bool> g_ksExclusive{false};         /* kernel streaming on a pin of 1 instance (others silent) */
-std::atomic<float> g_volume{1.0f};              /* kernel streaming: the Windows volumes (Volumes) */
 
 /* sched::now_seconds minus QPC seconds (the kernel streaming's times) */
 double g_qpcToSched;
@@ -79,210 +71,9 @@ double engine_clock()
     return sched::now_seconds();
 }
 
-/* ---- the output stage: gain, DC blocker, limiter, the debug dump ------- */
-
-struct Stage {
-    float x1[2] = {0, 0}, y1[2] = {0, 0};
-    float gain = 1.0f;                          /* the limiter's */
-    float vol = 1.0f;                           /* the Windows volumes' (g_volume, glided) */
-    float run = 1.0f;                           /* 0 while the tick step pauses (faded, kPauseFade) */
-    uint32_t limited = 0;                       /* frames turned down (logged) */
-    FILE *dump = nullptr;
-    uint32_t dumpFrames = 0;
-    uint32_t dumpSinceHeader = 0;
-    std::vector<int16_t> dumpBuf;
-
-    void open_dump()
-    {
-        char path[MAX_PATH];
-        DWORD n = GetEnvironmentVariableA("GT3PC_AUDIO_DUMP", path, sizeof(path));
-        if (n == 0 || n >= sizeof(path))
-            return;
-        dump = fopen(path, "wb");
-        if (!dump) {
-            pclog::write("audio: cannot write the dump %s", path);
-            return;
-        }
-        dumpBuf.resize(2 * kMaxFrames);
-        write_header();
-        pclog::write("audio: dumping the mix to %s", path);
-    }
-
-    void write_header()
-    {
-        uint32_t data = dumpFrames * 4;
-        uint8_t h[44];
-        memcpy(h, "RIFF", 4);
-        uint32_t v = 36 + data;
-        memcpy(h + 4, &v, 4);
-        memcpy(h + 8, "WAVEfmt ", 8);
-        v = 16;
-        memcpy(h + 16, &v, 4);
-        uint16_t s = 1;
-        memcpy(h + 20, &s, 2);              /* PCM */
-        s = 2;
-        memcpy(h + 22, &s, 2);              /* stereo */
-        v = kRate;
-        memcpy(h + 24, &v, 4);
-        v = kRate * 4;
-        memcpy(h + 28, &v, 4);
-        s = 4;
-        memcpy(h + 32, &s, 2);
-        s = 16;
-        memcpy(h + 34, &s, 2);
-        memcpy(h + 36, "data", 4);
-        memcpy(h + 40, &data, 4);
-        fseek(dump, 0, SEEK_SET);
-        fwrite(h, 1, sizeof(h), dump);
-        fseek(dump, 0, SEEK_END);
-        fflush(dump);
-    }
-
-    /* Renders `frames' 48 kHz stereo frames into out (float, after the
-     * stage); now: when the first is rendered (sched::now_seconds). */
-    void render(float *out, int frames, double now)
-    {
-        /* the tick step's pause (platform/frame_step.h): faded out, then the
-         * mix stops - the voices and the BGM stream hold where they are -
-         * until it runs again (faded in) */
-        const bool paused = frame_step::paused();
-        if (paused && run <= 0.0f) {
-            memset(out, 0, sizeof(float) * 2 * (size_t)frames);
-            return;
-        }
-        snd_native_render(out, frames, now);
-        /* the game's sound at the master gain, the music files after it at
-         * their own level (straight) */
-        for (int i = 0; i < 2 * frames; i++)
-            out[i] *= kMasterGain;
-        snd_native_render_music(out, frames);
-        for (int i = 0; i < frames; i++) {
-            float lr[2];
-            for (int c = 0; c < 2; c++) {
-                const float x = out[2 * i + c];
-                const float y = x - x1[c] + kDcPole * y1[c];
-                x1[c] = x;
-                y1[c] = y;
-                lr[c] = y;
-            }
-            /* the limiter: stereo-linked, down at once to the ceiling, back
-             * up slowly */
-            const float peak = fabsf(lr[0]) > fabsf(lr[1]) ? fabsf(lr[0]) : fabsf(lr[1]);
-            const float want = peak > kLimit ? kLimit / peak : 1.0f;
-            if (want < gain)
-                gain = want;
-            else
-                gain += (want - gain) * kLimitRelease;
-            if (gain < 0.999f)
-                limited++;
-            out[2 * i] = lr[0] * gain;
-            out[2 * i + 1] = lr[1] * gain;
-        }
-        if (dump) {
-            for (int i = 0; i < 2 * frames; i++)
-                dumpBuf[i] = (int16_t)lrintf(out[i] * 32767.0f);
-            fwrite(dumpBuf.data(), 4, frames, dump);
-            dumpFrames += frames;
-            dumpSinceHeader += frames;
-            if (dumpSinceHeader >= (uint32_t)kRate) {
-                dumpSinceHeader = 0;
-                write_header();             /* a valid file at any time: the process may just end */
-            }
-        }
-        /* the Windows volumes kernel streaming bypasses (after the dump:
-         * it keeps the game's own level) */
-        const float target = g_volume.load(std::memory_order_relaxed);
-        const float runTarget = paused ? 0.0f : 1.0f;
-        if (vol != 1.0f || target != 1.0f || run != 1.0f || runTarget != 1.0f) {
-            for (int i = 0; i < frames; i++) {
-                vol += (target - vol) * kVolumeGlide;
-                if (fabsf(target - vol) < 1e-5f)
-                    vol = target;
-                run = runTarget > run ? std::min(1.0f, run + kPauseFade) : std::max(0.0f, run - kPauseFade);
-                out[2 * i] *= vol * run;
-                out[2 * i + 1] *= vol * run;
-            }
-        }
-    }
-};
-
+/* the output stage and the rate converter (platform/audio_stage.h) */
 Stage g_stage;
-
-/* ---- the rate converter: 48 kHz to the output's (cubic) ---------------- */
-
-struct Converter {
-    int rate = kRate;
-    double step = 1.0;                          /* source frames per output frame */
-    double frac = 0.0;                          /* the position between h[1] and h[2] */
-    float h[4][2] = {};                         /* the last four source frames */
-    std::vector<float> src;
-
-    void reset(int outRate)
-    {
-        rate = outRate;
-        step = (double)kRate / (double)outRate;
-        frac = 0.0;
-        memset(h, 0, sizeof(h));
-        src.assign(2 * kMaxFrames, 0.0f);
-    }
-
-    /* `frames' stereo float frames at the output's rate; now: when the
-     * first is rendered.  The source frames a call takes are rendered at
-     * once (one engine render per output period: its blocks' timing). */
-    void render(float *out, int frames, double now)
-    {
-        if (rate == kRate) {
-            while (frames > 0) {
-                const int n = frames < kMaxFrames ? frames : kMaxFrames;
-                g_stage.render(out, n, now);
-                out += 2 * n;
-                frames -= n;
-                now += (double)n / kRate;
-            }
-            return;
-        }
-        const int maxOut = (int)((kMaxFrames - 2) / step);
-        while (frames > maxOut) {               /* (never: a period is far shorter) */
-            render(out, maxOut, now);
-            out += 2 * maxOut;
-            frames -= maxOut;
-            now += (double)maxOut / rate;
-        }
-        int need = 0;
-        double f = frac;
-        for (int i = 0; i < frames; i++) {
-            f += step;
-            while (f >= 1.0) {
-                f -= 1.0;
-                need++;
-            }
-        }
-        if (need > 0)
-            g_stage.render(src.data(), need, now);
-        int k = 0;
-        for (int i = 0; i < frames; i++) {
-            const float t = (float)frac;
-            for (int c = 0; c < 2; c++) {
-                /* Catmull-Rom between h[1] and h[2] */
-                const float p0 = h[0][c], p1 = h[1][c], p2 = h[2][c], p3 = h[3][c];
-                const float a = -0.5f * p0 + 1.5f * p1 - 1.5f * p2 + 0.5f * p3;
-                const float b = p0 - 2.5f * p1 + 2.0f * p2 - 0.5f * p3;
-                const float cc = -0.5f * p0 + 0.5f * p2;
-                out[2 * i + c] = ((a * t + b) * t + cc) * t + p1;
-            }
-            frac += step;
-            while (frac >= 1.0) {
-                frac -= 1.0;
-                memmove(h[0], h[1], sizeof(h[0]) * 3);
-                h[3][0] = src[2 * k];
-                h[3][1] = src[2 * k + 1];
-                k++;
-            }
-        }
-    }
-};
-
-Converter g_conv;
+Converter g_conv(&g_stage);
 
 /* ---- kernel streaming ---------------------------------------------------- */
 
@@ -671,7 +462,7 @@ Mode open_output(IMMDeviceEnumerator *en)
                          info.isFloat ? " float" : "", info.channels, info.waveRt ? "WaveRT" : "standard streaming",
                          info.periodFrames, info.bufferFrames, info.latencyMs);
             g_volumes.open(en);
-            g_volume = g_volumes.gain();
+            g_stage.volume = g_volumes.gain();
             if (info.instances == 1) {
                 /* not changed (the user's call, 2026-10-20): only said */
                 static bool warned;
@@ -718,7 +509,7 @@ void close_output(Mode mode)
     } else if (mode == MODE_WASAPI)
         g_wasapi.close();
     g_volumes.close();
-    g_volume = 1.0f;
+    g_stage.volume = 1.0f;
     g_ksExclusive = false;
     set_running(MODE_NONE, 0.0);
 }
@@ -815,7 +606,7 @@ void thread_main()
                 reopen = true;
             }
             if (tick >= nextVolume) {
-                g_volume = g_volumes.gain();
+                g_stage.volume = g_volumes.gain();
                 nextVolume = tick + kVolumePollMs;
             }
         }
@@ -936,11 +727,7 @@ void shutdown()
     g_quit = true;
     if (g_thread.joinable())
         g_thread.join();
-    if (g_stage.dump) {
-        g_stage.write_header();
-        fclose(g_stage.dump);
-        g_stage.dump = nullptr;
-    }
+    g_stage.close_dump();
 }
 
 void describe(char *out, size_t n)

@@ -141,3 +141,7 @@ endif()
 
 # The game-thread scheduler and the FPU mode (sched/, also buildable alone).
 add_subdirectory(sched)
+
+# The sound output over SDL3 and the .mp3 decoder (audio/, also buildable
+# alone; the music it plays: GT3PC_TEST_ADS, GT3PC_TEST_MP3, audio/CMakeLists.txt).
+add_subdirectory(audio)

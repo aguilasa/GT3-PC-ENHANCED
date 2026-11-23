@@ -5,7 +5,11 @@
 #include "platform/overlay.h"
 #include "platform/ui_text.h"                  /* PC (2026-11-16): the interface's languages */
 
+#ifdef _WIN32
 #include <windows.h>
+#else
+#include "platform/os/fs.h"                     /* the native text as UTF-8, widened */
+#endif
 
 #include <algorithm>
 #include <atomic>
@@ -41,14 +45,38 @@ bool live()
                             std::chrono::duration_cast<Clock::duration>(kLive).count();
 }
 
-/* The game's text (the ANSI code page) in the panel font's characters: the
- * accents left off (Unicode's decomposition: e from e-acute), a few letters
- * and signs spelled out, anything else '?'. */
+#ifndef _WIN32
+/* The base letter of a precomposed Latin letter with an accent (U+00C0 ..
+ * U+017F; what Unicode's canonical decomposition leaves of it, as
+ * FoldStringW's MAP_COMPOSITE on Windows), 0 for none. */
+wchar_t base_letter(wchar_t c)
+{
+    static const char kLatin1[] =               /* U+00C0 .. U+00FF */
+        "AAAAAA\0CEEEEIIII\0NOOOOO\0\0UUUUY\0\0"
+        "aaaaaa\0ceeeeiiii\0nooooo\0\0uuuuy\0y";
+    static const char kExtendedA[] =            /* U+0100 .. U+017F */
+        "AaAaAaCcCcCcCcDd\0\0EeEeEeEeEeGgGgGgGgHh\0\0IiIiIiIiI\0\0\0Jj"
+        "Kk\0LlLlLl\0\0\0\0NnNnNn\0\0\0OoOoOo\0\0RrRrRrSsSsSsSsTtTt\0\0"
+        "UuUuUuUuUuUuWwYyYZzZzZz\0";
+    static_assert(sizeof(kLatin1) == 0x40 + 1, "U+00C0 .. U+00FF");
+    static_assert(sizeof(kExtendedA) == 0x80 + 1, "U+0100 .. U+017F");
+    if (c >= 0xC0 && c <= 0xFF)
+        return (wchar_t)(unsigned char)kLatin1[c - 0xC0];
+    if (c >= 0x100 && c <= 0x17F)
+        return (wchar_t)(unsigned char)kExtendedA[c - 0x100];
+    return 0;
+}
+#endif
+
+/* The game's text (the ANSI code page on Windows, UTF-8 elsewhere) in the
+ * panel font's characters: the accents left off (Unicode's decomposition: e
+ * from e-acute), a few letters and signs spelled out, anything else '?'. */
 std::string fold(const char *text)
 {
     std::string out;
     if (text == nullptr)
         return out;
+#ifdef _WIN32
     const int n = MultiByteToWideChar(CP_ACP, 0, text, -1, nullptr, 0);
     if (n <= 1)
         return out;
@@ -60,6 +88,14 @@ std::string fold(const char *text)
         FoldStringW(MAP_COMPOSITE | MAP_FOLDCZONE, w.c_str(), -1, &d[0], m);
         w.swap(d);
     }
+#else
+    std::wstring w = fs::widen(fs::native_to_utf8(text));
+    for (wchar_t &c : w) {
+        const wchar_t b = base_letter(c);
+        if (b != 0)
+            c = b;
+    }
+#endif
     for (wchar_t c : w) {
         if (c == 0)
             break;

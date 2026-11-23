@@ -24,6 +24,9 @@
  *  - WASAPI shared (the fallback of Output=auto): through the Windows audio
  *    engine at its smallest period (IAudioClient3 where the driver allows,
  *    else the engine's default, ~10 ms);
+ *  - off Windows, SDL3 (platform/sdl/audio_sdl.cpp): a stream in pull mode
+ *    on the default device, through the same output stage
+ *    (platform/audio_stage.h); every Output value means it;
  *  - none: no device (or Output=ks and the device busy): the engine still
  *    renders at real-time pace, so the game's voices end and the BGM clock
  *    goes on; the output is tried again every 2 s.
@@ -59,7 +62,8 @@ void init();
 /* Stops the output thread (the process may also just end). */
 void shutdown();
 /* The output running, for the settings menu: "KS 4.2 + 3.1 MS" (the
- * output's latency + the scheduling delay), "WASAPI ...", "NONE". */
+ * output's latency + the scheduling delay), "WASAPI ...", "NONE"; off
+ * Windows "SDL ..." (platform/sdl/audio_sdl.cpp). */
 void describe(char *out, size_t n);
 
 } // namespace audio

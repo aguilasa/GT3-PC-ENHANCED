@@ -50,10 +50,12 @@ target_include_directories(sndgame PRIVATE ${GT3PC}/src ${CMAKE_CURRENT_SOURCE_D
 target_link_libraries(sndgame PRIVATE gt3_sound_native)
 target_compile_definitions(sndgame PRIVATE _CRT_SECURE_NO_WARNINGS)
 
-# sndplay: the platform's sound output (src/platform/audio.cpp, audio_ks.cpp)
+# sndplay: the platform's sound output (src/platform/audio.cpp, audio_ks.cpp,
+# audio_stage.cpp)
 # with the native SPU2, playing an .ads in real time (sndplay.cpp stands in
 # for the scheduler's clock and the settings).
 add_executable(sndplay sndplay.cpp ${GT3PC}/src/platform/audio.cpp ${GT3PC}/src/platform/audio_ks.cpp
+    ${GT3PC}/src/platform/audio_stage.cpp
     ${GT3PC}/src/platform/log.cpp
     ${GT3PC}/src/platform/ui_text.cpp)  # (PC 2026-11-16: audio.cpp's notices translate)
 target_include_directories(sndplay PRIVATE ${GT3PC}/src)
