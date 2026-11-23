@@ -1,10 +1,14 @@
 # The game-thread scheduler and the FPU mode on POSIX (src/platform/scheduler.cpp,
-# src/platform/fpu.h), built on their own, outside the game's build:
+# src/platform/fpu.h), built on their own, outside the game's build. From the
+# repository root:
 #
 #   cmake -S tools/platform_tests/sched -B build-sched-test -G Ninja \
-#         -DCMAKE_TOOLCHAIN_FILE=cmake/toolchains/linux-i686.cmake
+#         -DCMAKE_TOOLCHAIN_FILE="$PWD"/cmake/toolchains/linux-i686.cmake
 #   cmake --build build-sched-test
 #   ctest --test-dir build-sched-test --output-on-failure
+#
+# The toolchain path must be absolute: CMake resolves a relative one against
+# the build and source directories, not the directory it was started from.
 #
 # The Windows build has its own scheduler test (tools/schedtest).
 cmake_minimum_required(VERSION 3.20)
