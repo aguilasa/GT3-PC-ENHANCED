@@ -12,7 +12,9 @@
  * delay-loaded); without it the game runs with the keyboard alone.  A
  * thread of its own polls SDL (every 2 ms), so the pads read a recent state
  * at any time; the controllers work while the window is in the background,
- * as in PCSX2.  platform/pad_pc.cpp maps the raw state to libpad's answers
+ * as in PCSX2.  Off Windows SDL3 is linked in and runs on the main thread
+ * (the window's): the window's loop hands the plug / unplug events to
+ * sdl_event, and the thread only reads the open devices' state.  platform/pad_pc.cpp maps the raw state to libpad's answers
  * and platform/wheel.cpp the wheels' to the USB wheel driver's, both through
  * the mappings of platform/input_map.h.
  *
@@ -32,6 +34,10 @@
 
 #include "platform/input_map.h"
 
+#ifndef _WIN32
+union SDL_Event;
+#endif
+
 namespace gamepad {
 
 /* A DualShock 2's state.  buttons: the answer's bytes 2..3 (libpad), active
@@ -46,7 +52,8 @@ struct State {
 };
 
 /* Loads SDL3 and starts the controller thread; false (logged) when SDL3.dll
- * is missing or does not start. */
+ * is missing or does not start.  Off Windows: on the main thread, after
+ * window::create (SDL's controllers started there). */
 bool init();
 /* Stops the motors and the thread. */
 void shutdown();
@@ -109,5 +116,12 @@ struct DevicePresses {
     uint8_t joy[input_map::kMaxDevices][128];
 };
 void take_pressed_devices(DevicePresses *out);
+
+#ifndef _WIN32
+/* Off Windows: an event of SDL's queue, from the window's loop (the main
+ * thread); a controller's or joystick's plug / unplug opens or closes it,
+ * the other events are ignored. */
+void sdl_event(const SDL_Event &e);
+#endif
 
 } // namespace gamepad

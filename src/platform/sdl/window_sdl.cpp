@@ -8,6 +8,8 @@
  * the screen windows.  The calls of other threads that touch the window
  * (apply_mode, the screen windows, press_hotkey) run on the main thread
  * (SDL_RunOnMainThread), the ones that block on Windows blocking here too.
+ * The controllers' plug / unplug events of the queue go to gamepad.cpp
+ * (gamepad::sdl_event), which opens and closes them on this thread.
  *
  * The keys: letters and digits by the key's keycode (the layout's: the key
  * that types A is 'A', as Windows' virtual keys are), the rest by its
@@ -19,6 +21,7 @@
 #include "platform/debug_camera.h"
 #include "platform/frame_monitor.h"
 #include "platform/frame_step.h"
+#include "platform/gamepad.h"
 #include "platform/input_map.h"
 #include "platform/log.h"
 #include "platform/os/win_compat.h"
@@ -649,6 +652,12 @@ bool handle_event(const SDL_Event &e)
             return false;
         }
         return true;                    /* (the screen windows: the game closes them) */
+    case SDL_EVENT_GAMEPAD_ADDED:
+    case SDL_EVENT_GAMEPAD_REMOVED:
+    case SDL_EVENT_JOYSTICK_ADDED:
+    case SDL_EVENT_JOYSTICK_REMOVED:
+        gamepad::sdl_event(e);          /* the controllers are opened and closed here */
+        return true;
     case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
         if (e.window.windowID == mainId) {
             g_clientW = e.window.data1;

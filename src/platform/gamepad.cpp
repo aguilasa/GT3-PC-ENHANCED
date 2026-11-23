@@ -1,12 +1,23 @@
 /* gamepad.cpp - game controllers and wheels of GT3 PC, through SDL3
  * (gamepad.h).
  *
- * SDL is started and polled on one thread of its own (SDL's device
+ * Windows: SDL is started and polled on one thread of its own (SDL's device
  * notifications belong to the thread that starts it): every kPollMs it
  * handles the plug / unplug events, reads each open pad, wheel and named
  * device into the shared state, drives the motors and watches the Guide
- * buttons (PC: and the hotkeys' devices: hotkeys).  The game's
- * threads only read the state and set the motors, under a mutex or atomics. */
+ * buttons (PC: and the hotkeys' devices: hotkeys).
+ *
+ * Elsewhere SDL is linked directly and belongs to the main thread: the
+ * window started it (window::create, the video), init adds the controllers
+ * on that thread, and the window's loop hands the plug / unplug events of
+ * its queue to sdl_event, which opens and closes the devices there.  The
+ * loop's waits also update SDL's joysticks (every millisecond while one is
+ * open).  The controller thread then only reads the open devices' state,
+ * every kPollMs, drives the motors and watches the Guide buttons and the
+ * hotkeys; the devices (the slots) are shared by the two under g_slotMutex.
+ *
+ * The game's threads only read the state and set the motors, under a mutex
+ * or atomics. */
 #include "platform/gamepad.h"
 #include "platform/log.h"
 #include "platform/settings_menu.h"
@@ -15,7 +26,11 @@
 #include "platform/window.h"
 
 #include <SDL3/SDL.h>
+#ifdef _WIN32
 #include <windows.h>
+#else
+#include "platform/os/win_compat.h"
+#endif
 
 #include <atomic>
 #include <future>
@@ -129,6 +144,13 @@ uint8_t g_devPressedJoy[kDevices][128];
 
 std::thread g_thread;
 std::atomic<bool> g_quit{false};
+#ifndef _WIN32
+/* The slots (g_slots, g_wheelSlots, g_devSlots): opened and closed on the
+ * main thread (sdl_event, shutdown), read by the controller thread.  Taken
+ * before g_mutex. */
+std::mutex g_slotMutex;
+std::atomic<bool> g_started{false};         /* init's SDL_InitSubSystem succeeded */
+#endif
 
 /* PC: the SDL thread's view of the hotkeys' devices (hotkeys): each one's
  * binding down at the last look; the first look made. */
@@ -562,76 +584,70 @@ void unplug(SDL_JoystickID id)
     SDL_free(ids);
 }
 
-void thread_main(std::promise<bool> *started)
+/* A plug / unplug event of SDL's queue. */
+void device_event(const SDL_Event &e)
 {
-    /* no SDL window: the controllers count whatever window has the focus */
-    SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
-    if (!SDL_Init(SDL_INIT_GAMEPAD)) {
-        pclog::write("pad: SDL3 did not start (%s): keyboard only", SDL_GetError());
-        started->set_value(false);
-        return;
+    if (e.type == SDL_EVENT_GAMEPAD_ADDED)
+        plug(e.gdevice.which);
+    else if (e.type == SDL_EVENT_GAMEPAD_REMOVED)
+        unplug(e.gdevice.which);
+    else if (e.type == SDL_EVENT_JOYSTICK_ADDED) {
+        plug_wheel(e.jdevice.which);
+        plug_device(e.jdevice.which);
+    } else if (e.type == SDL_EVENT_JOYSTICK_REMOVED) {
+        unplug_wheel(e.jdevice.which);
+        unplug_device(e.jdevice.which);
     }
-    started->set_value(true);
+}
 
-    while (!g_quit) {
-        SDL_Event e;
-        while (SDL_PollEvent(&e)) {
-            if (e.type == SDL_EVENT_GAMEPAD_ADDED)
-                plug(e.gdevice.which);
-            else if (e.type == SDL_EVENT_GAMEPAD_REMOVED)
-                unplug(e.gdevice.which);
-            else if (e.type == SDL_EVENT_JOYSTICK_ADDED) {
-                plug_wheel(e.jdevice.which);
-                plug_device(e.jdevice.which);
-            } else if (e.type == SDL_EVENT_JOYSTICK_REMOVED) {
-                unplug_wheel(e.jdevice.which);
-                unplug_device(e.jdevice.which);
-            }
-        }
-        ULONGLONG now = GetTickCount64();
-        for (int p = 0; p < kPorts; p++) {
-            if (g_slots[p].pad == nullptr)
-                continue;
-            State st;
-            input_map::PadSource raw;
-            poll(g_slots[p].pad, &st, &raw);
-            {
-                std::lock_guard<std::mutex> lock(g_mutex);
-                g_state[p] = st;
-                g_raw[p] = raw;
-                g_pressed[p] |= raw.buttons;
-            }
-            rumble(p, now);
-            guide(g_slots[p], now);
-        }
-        for (int w = 0; w < kWheels; w++) {
-            if (g_wheelSlots[w].joy == nullptr)
-                continue;
-            Joystick st;
-            poll_wheel(g_wheelSlots[w].joy, &st);
+/* Reads each open pad, wheel and device into the shared state, drives the
+ * motors and watches the Guide buttons. */
+void poll_devices(ULONGLONG now)
+{
+    for (int p = 0; p < kPorts; p++) {
+        if (g_slots[p].pad == nullptr)
+            continue;
+        State st;
+        input_map::PadSource raw;
+        poll(g_slots[p].pad, &st, &raw);
+        {
             std::lock_guard<std::mutex> lock(g_mutex);
-            g_wheel[w] = st;
+            g_state[p] = st;
+            g_raw[p] = raw;
+            g_pressed[p] |= raw.buttons;
         }
-        for (int d = 0; d < g_devCount; d++) {
-            const DeviceSlot &s = g_devSlots[d];
-            if (s.joy == nullptr)
-                continue;
-            Joystick st;
-            input_map::PadSource raw = {};
-            poll_wheel(s.joy, &st);
-            if (s.pad != nullptr)
-                poll_raw(s.pad, &raw);
-            std::lock_guard<std::mutex> lock(g_mutex);
-            g_devJoy[d] = st;
-            g_devPad[d] = raw;
-            g_devPressedPad[d] |= raw.buttons;
-            for (int i = 0; i < st.buttonCount; i++)
-                g_devPressedJoy[d][i] |= st.buttons[i];
-        }
-        hotkeys();                          /* PC */
-        Sleep(kPollMs);
+        rumble(p, now);
+        guide(g_slots[p], now);
     }
+    for (int w = 0; w < kWheels; w++) {
+        if (g_wheelSlots[w].joy == nullptr)
+            continue;
+        Joystick st;
+        poll_wheel(g_wheelSlots[w].joy, &st);
+        std::lock_guard<std::mutex> lock(g_mutex);
+        g_wheel[w] = st;
+    }
+    for (int d = 0; d < g_devCount; d++) {
+        const DeviceSlot &s = g_devSlots[d];
+        if (s.joy == nullptr)
+            continue;
+        Joystick st;
+        input_map::PadSource raw = {};
+        poll_wheel(s.joy, &st);
+        if (s.pad != nullptr)
+            poll_raw(s.pad, &raw);
+        std::lock_guard<std::mutex> lock(g_mutex);
+        g_devJoy[d] = st;
+        g_devPad[d] = raw;
+        g_devPressedPad[d] |= raw.buttons;
+        for (int i = 0; i < st.buttonCount; i++)
+            g_devPressedJoy[d][i] |= st.buttons[i];
+    }
+}
 
+/* Stops the motors and closes every open device. */
+void close_devices()
+{
     for (int p = 0; p < kPorts; p++)
         if (g_slots[p].pad != nullptr) {
             SDL_RumbleGamepad(g_slots[p].pad, 0, 0, 0);
@@ -650,11 +666,51 @@ void thread_main(std::promise<bool> *started)
             SDL_CloseJoystick(g_devSlots[d].joy);
             g_devSlots[d] = DeviceSlot();
         }
+}
+
+#ifdef _WIN32
+void thread_main(std::promise<bool> *started)
+{
+    /* no SDL window: the controllers count whatever window has the focus */
+    SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
+    if (!SDL_Init(SDL_INIT_GAMEPAD)) {
+        pclog::write("pad: SDL3 did not start (%s): keyboard only", SDL_GetError());
+        started->set_value(false);
+        return;
+    }
+    started->set_value(true);
+
+    while (!g_quit) {
+        SDL_Event e;
+        while (SDL_PollEvent(&e))
+            device_event(e);
+        poll_devices(GetTickCount64());
+        hotkeys();                          /* PC */
+        Sleep(kPollMs);
+    }
+
+    close_devices();
     SDL_Quit();
 }
+#else
+/* The controller thread: the open devices' state only (the main thread
+ * opens and closes them). */
+void thread_main()
+{
+    while (!g_quit) {
+        {
+            std::lock_guard<std::mutex> lock(g_slotMutex);
+            poll_devices(GetTickCount64());
+        }
+        hotkeys();                          /* PC */
+        Sleep(kPollMs);
+    }
+}
+#endif
 
 } // namespace
 
+#ifdef _WIN32
 bool init()
 {
     /* SDL3.dll is delay-loaded: loaded here from the game's folder (not the
@@ -696,6 +752,62 @@ void shutdown()
     g_quit = true;
     g_thread.join();
 }
+#else
+bool init()
+{
+    const int v = SDL_GetVersion();
+    /* the devices the bindings name (input_map::init has read them) */
+    g_devCount = input_map::device_count() < kDevices ? input_map::device_count() : kDevices;
+    for (int d = 0; d < input_map::device_count(); d++)
+        pclog::write("pad: device %d named by the bindings: %s%s", d + 1, input_map::device_name(d + 1),
+                     d < kDevices ? "" : " (too many: not read)");
+    /* the controllers count while the window is in the background too */
+    SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
+    if (!SDL_InitSubSystem(SDL_INIT_GAMEPAD)) {
+        pclog::write("pad: SDL3 did not start (%s): keyboard only", SDL_GetError());
+        return false;
+    }
+    g_started = true;
+    g_quit = false;
+    g_thread = std::thread(thread_main);
+    pclog::write("pad: SDL %d.%d.%d: controllers on ports 1 and 2, wheels 1 and 2", SDL_VERSIONNUM_MAJOR(v),
+                 SDL_VERSIONNUM_MINOR(v), SDL_VERSIONNUM_MICRO(v));
+    return true;
+}
+
+void shutdown()
+{
+    if (!g_thread.joinable())
+        return;
+    g_quit = true;
+    g_thread.join();
+    {
+        std::lock_guard<std::mutex> lock(g_slotMutex);
+        close_devices();
+        g_started = false;
+    }
+    {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        for (int p = 0; p < kPorts; p++)
+            g_present[p] = false;
+        for (int w = 0; w < kWheels; w++)
+            g_wheelPresent[w] = false;
+        for (int d = 0; d < kDevices; d++)
+            g_devPresent[d] = false;
+    }
+    SDL_QuitSubSystem(SDL_INIT_GAMEPAD);
+}
+
+void sdl_event(const SDL_Event &e)
+{
+    if (e.type != SDL_EVENT_GAMEPAD_ADDED && e.type != SDL_EVENT_GAMEPAD_REMOVED &&
+        e.type != SDL_EVENT_JOYSTICK_ADDED && e.type != SDL_EVENT_JOYSTICK_REMOVED)
+        return;
+    std::lock_guard<std::mutex> lock(g_slotMutex);
+    if (g_started)
+        device_event(e);
+}
+#endif
 
 bool read(int port, State *out)
 {

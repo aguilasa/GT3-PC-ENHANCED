@@ -121,9 +121,13 @@ set_tests_properties(arena_env PROPERTIES ENVIRONMENT GT3PC_HEAP_MB=1024)
 # The same program opens a real window for keys injected from outside
 # (`window_test keys <ini> <seconds> --expect ..', xdotool) and for the
 # display modes (`window_test modes [WxH]'); those need a display and are
-# not run by ctest.
+# not run by ctest.  The controllers (src/platform/gamepad.cpp) on the
+# window's loop: SDL's own virtual gamepad and wheel plugged in and out
+# (`window_test pads', no /dev/uinput), and the keyboard alone without a
+# device (`window_test nopads'), both on the dummy driver.
 if(SDL3_FOUND)
     add_executable(window_test window_test.cpp ${GT3PC_ROOT}/src/platform/sdl/window_sdl.cpp
+        ${GT3PC_ROOT}/src/platform/gamepad.cpp
         ${GT3PC_ROOT}/src/platform/input_map.cpp ${GT3PC_ROOT}/src/platform/ui_text.cpp
         ${GT3PC_ROOT}/src/platform/os/ini_posix.cpp ${GT3PC_ROOT}/src/platform/png_image.cpp
         ${GT3PC_ROOT}/src/platform/os/fs_posix.cpp)
@@ -135,6 +139,10 @@ if(SDL3_FOUND)
     target_link_libraries(window_test PRIVATE SDL3::SDL3 gt3_lodepng Threads::Threads)
     add_test(NAME window_map COMMAND window_test map ${CMAKE_CURRENT_SOURCE_DIR}/window_test_win.ini)
     set_tests_properties(window_map PROPERTIES ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;TMPDIR=${CMAKE_CURRENT_BINARY_DIR}")
+    add_test(NAME window_pads COMMAND window_test pads ${CMAKE_CURRENT_SOURCE_DIR}/window_test_win.ini)
+    add_test(NAME window_nopads COMMAND window_test nopads ${CMAKE_CURRENT_SOURCE_DIR}/window_test_win.ini)
+    set_tests_properties(window_pads window_nopads PROPERTIES
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;TMPDIR=${CMAKE_CURRENT_BINARY_DIR}")
 else()
     message(STATUS "window_test: no SDL3; not built")
 endif()

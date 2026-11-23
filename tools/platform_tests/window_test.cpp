@@ -24,14 +24,25 @@
  *       fullscreen (the display mode closest to WxH, default 800x600) and
  *       windowed again, each applied from another thread as the GPU module
  *       does, with the window's and the display's measured sizes printed.
+ *   window_test pads <gt3pc.ini>
+ *       No display needed: the controllers (src/platform/gamepad.cpp) on the
+ *       window's loop.  SDL's own virtual devices (SDL_AttachVirtualJoystick,
+ *       no /dev/uinput): a gamepad plugged into port 1, its Cross button
+ *       read by the controller thread, a wheel as Wheel 1, both unplugged;
+ *       the log's connect and disconnect lines written on the main thread.
+ *   window_test nopads <gt3pc.ini>
+ *       The same without a device: no port or wheel present, a key still
+ *       reaching the game, and no SDL error in the log.
  *
  * The window's partners are stand-ins here: the settings (the display mode
  * and the window's size), the menus and panels (their hotkeys printed), the
- * debug camera (no mouse look) and the log (standard output). */
+ * debug camera (no mouse look) and the log (standard output, its lines also
+ * kept with the thread that wrote them). */
 #include "platform/cockpit_osd.h"
 #include "platform/debug_camera.h"
 #include "platform/frame_monitor.h"
 #include "platform/frame_step.h"
+#include "platform/gamepad.h"
 #include "platform/input_map.h"
 #include "platform/log.h"
 #include "platform/os/win_compat.h"
@@ -46,6 +57,8 @@
 #include <SDL3/SDL.h>
 
 #include <atomic>
+#include <functional>
+#include <mutex>
 #include <set>
 #include <stdarg.h>
 #include <stdio.h>
@@ -60,6 +73,13 @@
 namespace {
 settings::Display g_display;
 std::atomic<int> g_settingsToggles{0};
+/* the log's lines and whether SDL's main thread wrote them */
+struct LogLine {
+    std::string text;
+    bool main;
+};
+std::mutex g_logMutex;
+std::vector<LogLine> g_log;
 } // namespace
 
 namespace settings {
@@ -80,13 +100,16 @@ const char *mode_name(DisplayMode m)
 namespace pclog {
 void write(const char *fmt, ...)
 {
+    char text[1024];
     va_list ap;
     va_start(ap, fmt);
-    printf("log: ");
-    vprintf(fmt, ap);
-    printf("\n");
+    vsnprintf(text, sizeof text, fmt, ap);
     va_end(ap);
+    const bool main = SDL_IsMainThread();
+    printf("log%s: %s\n", main ? "" : " (another thread)", text);
     fflush(stdout);
+    std::lock_guard<std::mutex> lock(g_logMutex);
+    g_log.push_back({text, main});
 }
 } // namespace pclog
 
@@ -555,6 +578,174 @@ void measure(const char *what)
         &m, true);
 }
 
+/* ---- the controllers on the window's loop ---------------------------------- */
+
+/* (checks thread) Waits up to ms for cond. */
+bool wait_for(const std::function<bool()> &cond, int ms)
+{
+    for (int t = 0; t < ms; t += 5) {
+        if (cond())
+            return true;
+        SDL_Delay(5);
+    }
+    return cond();
+}
+
+bool port_present(int port)
+{
+    gamepad::State st;
+    return gamepad::read(port, &st);
+}
+
+bool wheel_present(int wheel)
+{
+    gamepad::Joystick j;
+    return gamepad::read_wheel(wheel, &j);
+}
+
+bool cross_down()
+{
+    gamepad::State st;
+    return gamepad::read(0, &st) && (st.buttons & (1u << 14)) != 0;
+}
+
+/* The log's lines that start with prefix: (written on the main thread). */
+int log_count(const char *prefix, bool *allMain = nullptr)
+{
+    std::lock_guard<std::mutex> lock(g_logMutex);
+    int n = 0;
+    if (allMain != nullptr)
+        *allMain = true;
+    for (const LogLine &l : g_log)
+        if (l.text.compare(0, strlen(prefix), prefix) == 0) {
+            n++;
+            if (allMain != nullptr && !l.main)
+                *allMain = false;
+        }
+    return n;
+}
+
+/* The log's lines that report an SDL failure (gamepad.cpp's: a device not
+ * opened, SDL not started). */
+int log_errors()
+{
+    std::lock_guard<std::mutex> lock(g_logMutex);
+    int n = 0;
+    for (const LogLine &l : g_log)
+        if (l.text.find("could not") != std::string::npos || l.text.find("did not start") != std::string::npos ||
+            l.text.find("keyboard only") != std::string::npos || l.text.find("SDL video:") != std::string::npos) {
+            fprintf(stderr, "an SDL error in the log: %s\n", l.text.c_str());
+            n++;
+        }
+    return n;
+}
+
+/* (checks thread) SDL's virtual gamepad and wheel plugged in and out. */
+int pad_checks()
+{
+    SDL_VirtualJoystickDesc pad;
+    SDL_INIT_INTERFACE(&pad);
+    pad.type = SDL_JOYSTICK_TYPE_GAMEPAD;
+    pad.naxes = SDL_GAMEPAD_AXIS_COUNT;
+    pad.nbuttons = SDL_GAMEPAD_BUTTON_COUNT;
+    pad.name = "Virtual Pad (SDL)";
+    const SDL_JoystickID padId = SDL_AttachVirtualJoystick(&pad);
+    printf("attached the virtual gamepad: id %u (%s)\n", (unsigned)padId, padId ? "ok" : SDL_GetError());
+    CHECK(padId != 0);
+    CHECK(wait_for([] { return port_present(0); }, 3000));
+    CHECK(!port_present(1));
+
+    /* its Cross pressed: the controller thread's State */
+    SDL_Joystick *joy = SDL_OpenJoystick(padId);
+    CHECK(joy != nullptr);
+    CHECK(SDL_SetJoystickVirtualButton(joy, SDL_GAMEPAD_BUTTON_SOUTH, true));
+    const bool down = wait_for(cross_down, 2000);
+    CHECK(SDL_SetJoystickVirtualButton(joy, SDL_GAMEPAD_BUTTON_SOUTH, false));
+    const bool up = wait_for([] { return !cross_down(); }, 2000);
+    printf("port 1 Cross: down %d, released %d\n", down, up);
+    CHECK(down && up);
+    SDL_CloseJoystick(joy);
+
+    SDL_VirtualJoystickDesc wheel;
+    SDL_INIT_INTERFACE(&wheel);
+    wheel.type = SDL_JOYSTICK_TYPE_WHEEL;
+    wheel.naxes = 3;
+    wheel.nbuttons = 12;
+    wheel.nhats = 1;
+    wheel.name = "Virtual Wheel (SDL)";
+    const SDL_JoystickID wheelId = SDL_AttachVirtualJoystick(&wheel);
+    printf("attached the virtual wheel: id %u (%s)\n", (unsigned)wheelId, wheelId ? "ok" : SDL_GetError());
+    CHECK(wheelId != 0);
+    CHECK(wait_for([] { return wheel_present(0); }, 3000));
+    CHECK(!port_present(1));    /* (a wheel, never a pad) */
+
+    CHECK(SDL_DetachVirtualJoystick(padId));
+    CHECK(wait_for([] { return !port_present(0); }, 3000));
+    CHECK(SDL_DetachVirtualJoystick(wheelId));
+    CHECK(wait_for([] { return !wheel_present(0); }, 3000));
+    printf("detached both: port 1 %d, wheel 1 %d\n", port_present(0), wheel_present(0));
+    return 0;
+}
+
+/* (checks thread) No device: the keyboard alone. */
+int nopad_checks()
+{
+    SDL_Delay(1500);
+    CHECK(!port_present(0) && !port_present(1));
+    CHECK(!wheel_present(0) && !wheel_present(1));
+    tap(SDL_SCANCODE_A, SDLK_A);
+    pump();
+    const std::set<int> got = take_presses();
+    printf("no controller: ports %d %d, wheels %d %d; keys %s\n", port_present(0), port_present(1), wheel_present(0),
+           wheel_present(1), set_text(got).c_str());
+    CHECK(got == (std::set<int>{'A'}));
+    return 0;
+}
+
+int run_pads(const char *ini, bool devices)
+{
+    if (getenv("SDL_VIDEO_DRIVER") == nullptr)
+        SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "dummy");
+    input_map::init(copy_ini(ini, "window_test_pads.ini").c_str());
+    g_display.windowW = 640;
+    g_display.windowH = 480;
+    CHECK(window::create("window_test pads"));
+    const bool started = gamepad::init();
+    CHECK(started);
+    if (g_failures)
+        return 1;
+    std::thread checks([&] {
+        if (devices)
+            pad_checks();
+        else
+            nopad_checks();
+        SDL_Event quit = {};
+        quit.type = SDL_EVENT_QUIT;
+        SDL_PushEvent(&quit);
+    });
+    window::run_message_loop();
+    checks.join();
+    gamepad::shutdown();
+
+    bool padMain = false, wheelMain = false;
+    const int pads = log_count("pad: port 1:", &padMain);
+    const int padsOff = log_count("pad: port 1: disconnected");
+    const int wheels = log_count("wheel: wheel 1:", &wheelMain);
+    const int wheelsOff = log_count("wheel: wheel 1: disconnected");
+    printf("log: port 1 lines %d (disconnected %d), wheel 1 lines %d (disconnected %d), on the main thread %d %d\n",
+           pads, padsOff, wheels, wheelsOff, padMain, wheelMain);
+    CHECK(log_count("pad: SDL ") == 1);
+    if (devices) {
+        CHECK(pads == 2 && padsOff == 1 && padMain);
+        CHECK(wheels == 2 && wheelsOff == 1 && wheelMain);
+    } else {
+        CHECK(pads == 0 && wheels == 0);
+    }
+    CHECK(log_errors() == 0);
+    printf("%s: %s\n", devices ? "pads" : "nopads", g_failures ? "FAILED" : "ok");
+    return g_failures ? 1 : 0;
+}
+
 int run_modes(int fw, int fh)
 {
     g_display.windowW = 640;
@@ -622,6 +813,8 @@ int main(int argc, char **argv)
         }
         return run_keys(argv[2], atoi(argv[3]), freeF2, expect, absent);
     }
+    if (argc >= 3 && (strcmp(argv[1], "pads") == 0 || strcmp(argv[1], "nopads") == 0))
+        return run_pads(argv[2], strcmp(argv[1], "pads") == 0);
     if (argc >= 2 && strcmp(argv[1], "modes") == 0) {
         int w = 800, h = 600;
         if (argc >= 3)
@@ -629,6 +822,6 @@ int main(int argc, char **argv)
         return run_modes(w, h);
     }
     fprintf(stderr, "usage: window_test map <ini> | keys <ini> <seconds> [--free-f2] [--expect 0xNN,..] "
-                    "[--absent 0xNN,..] | modes [WxH]\n");
+                    "[--absent 0xNN,..] | modes [WxH] | pads <ini> | nopads <ini>\n");
     return 2;
 }
