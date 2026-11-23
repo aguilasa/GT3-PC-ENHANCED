@@ -17,10 +17,17 @@
 #include "platform/crash.h"                 /* log_stack (log_threads) */
 #include "platform/log.h"
 
+#ifdef _WIN32
 #include <windows.h>
 #include <process.h>
 #include <timeapi.h>
 #include <float.h>
+#else
+#include "platform/fpu.h"
+#include <errno.h>
+#include <pthread.h>
+#include <time.h>
+#endif
 #include <stdio.h>
 #include <string.h>
 
@@ -68,7 +75,12 @@ struct Thread {
     int  generation = 0;          /* bumped at each start / termination */
     int  diCount = 0;             /* DI depth of the thread */
     double delayUntil = 0;
+#ifdef _WIN32
     HANDLE native = nullptr;      /* its last native thread (log_threads) */
+#else
+    pthread_t native{};           /* its last native thread (log_threads) */
+    bool hasNative = false;
+#endif
     std::condition_variable cv;
 };
 
@@ -119,22 +131,45 @@ private:
 };
 
 std::mutex g_mtx;
+#ifdef _WIN32
 Thread g_threads[kMaxThreads];
+#else
+/* Never destroyed (nor g_intr): glibc's pthread_cond_destroy waits for the
+ * threads still blocked on the condition, so exit() would hang on the game
+ * threads parked in their waits. */
+Thread (&g_threads)[kMaxThreads] = *new Thread[1][kMaxThreads];
+#endif
 Sema g_semas[kMaxSemas];
 std::deque<int> g_ready[kPriorities];
 int  g_running = 0;
 bool g_needResched = false;
 
+#ifdef _WIN32
 IntrLock g_intr;
+#else
+IntrLock &g_intr = *new IntrLock;
+#endif
 std::mutex g_hmtx;                          /* handlers and alarms */
 std::vector<Handler> g_handlers;
 bool g_intcEnabled[16];
 int  g_nextHandlerId = 1;
 std::vector<Alarm> g_alarms;
 int  g_nextAlarmId = 1;
+#ifdef _WIN32
 HANDLE g_timerWake = nullptr;               /* nudges the timer thread */
 
 LARGE_INTEGER g_qpcFreq, g_qpcStart;
+#else
+/* The timer thread's wake-up: a new alarm or delay sets the flag and
+ * signals the condition (CLOCK_MONOTONIC); like the auto-reset event of the
+ * Windows build, a nudge given while the timer is not waiting is kept for
+ * its next wait. */
+pthread_mutex_t g_wakeMtx = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t g_wakeCv;
+bool g_wakePending = false;
+
+int64_t g_startNs;                          /* CLOCK_MONOTONIC at init() */
+#endif
 std::atomic<uint64_t> g_vblanks{0};
 std::atomic<double> g_vblankTime{0.0};     /* now_seconds() of the last vblank */
 /* The times of the last 32 vblanks, by their count (vblanks_at). */
@@ -149,6 +184,35 @@ thread_local int tl_gen = 0;
  * first one woken let the main thread run its frame before the render
  * thread at a vblank: controls read twice or missed.) */
 thread_local bool tl_inInterrupt = false;
+
+/* ---- the host ------------------------------------------------------------- */
+
+/* Ends the calling native thread without returning to its caller.  glibc's
+ * pthread_exit unwinds the stack (destructors run, catch (...) sees it and
+ * must rethrow); the callers hold no lock by then. */
+[[noreturn]] void end_native_thread()
+{
+#ifdef _WIN32
+    _endthreadex(0);
+#else
+    pthread_exit(nullptr);
+#endif
+    for (;;) {
+    }
+}
+
+/* Wakes the timer thread to look at the next event again. */
+void nudge_timer()
+{
+#ifdef _WIN32
+    SetEvent(g_timerWake);
+#else
+    pthread_mutex_lock(&g_wakeMtx);
+    g_wakePending = true;
+    pthread_cond_signal(&g_wakeCv);
+    pthread_mutex_unlock(&g_wakeMtx);
+#endif
+}
 
 /* ---- ready queues -------------------------------------------------------- */
 
@@ -229,7 +293,7 @@ void wait_for_cpu(std::unique_lock<std::mutex> &lk, Thread *t, int gen)
     t->cv.wait(lk, [&] { return t->generation != gen || g_running == t->id; });
     if (t->generation != gen) {
         lk.unlock();
-        _endthreadex(0);
+        end_native_thread();
     }
 }
 
@@ -289,8 +353,12 @@ Sema *sema_of(int sid)
  * around themselves (platform/fpu.h). */
 void set_game_fpu_mode()
 {
+#ifdef _WIN32
     unsigned int cw;
     _controlfp_s(&cw, _RC_CHOP | _DN_FLUSH, _MCW_RC | _MCW_DN);
+#else
+    fpu::set_mode(fpu::kGameMode);
+#endif
 }
 
 struct StartBox {
@@ -298,7 +366,11 @@ struct StartBox {
     int gen;
 };
 
+#ifdef _WIN32
 unsigned __stdcall native_entry(void *p)
+#else
+void *native_entry(void *p)
+#endif
 {
     StartBox box = *(StartBox *)p;
     delete (StartBox *)p;
@@ -323,12 +395,31 @@ void spawn_native(Thread &t)
 {
     StartBox *box = new StartBox{&t, t.generation};
     unsigned stack = t.stackSize > kMinStack ? (unsigned)t.stackSize : (unsigned)kMinStack;
+#ifdef _WIN32
     uintptr_t h = _beginthreadex(nullptr, stack, native_entry, box, 0, nullptr);
     if (h == 0)
         pclog::fatal("could not create a game thread (errno %d)", errno);
     if (t.native)
         CloseHandle(t.native);
     t.native = (HANDLE)h;
+#else
+    /* Detached: a game thread ends by pthread_exit and nobody joins it.  The
+     * stack size is the one asked (16 MB for the main thread, main.cpp), at
+     * least kMinStack, rounded up to 64 KB. */
+    stack = (stack + 0xFFFFu) & ~0xFFFFu;
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+    int err = pthread_attr_setstacksize(&attr, stack);
+    pthread_t h;
+    if (err == 0)
+        err = pthread_create(&h, &attr, native_entry, box);
+    pthread_attr_destroy(&attr);
+    if (err != 0)
+        pclog::fatal("could not create a game thread (error %d)", err);
+    t.native = h;
+    t.hasNative = true;
+#endif
 }
 
 /* ---- interrupts ---------------------------------------------------------- */
@@ -426,9 +517,54 @@ double next_alarm_time()
     return best;
 }
 
-/* The interrupt source.  Sleeps with a high-resolution waitable timer
- * until the next event (or until g_timerWake is set by a new alarm /
- * delay), so vblanks are within a fraction of a millisecond. */
+#ifndef _WIN32
+/* The last part of a timer wait, slept without the wake-up: a nudge that
+ * comes inside it is seen at the event that ends it, at most this late. */
+constexpr double kTimerFineWait = 0.0005;
+
+timespec monotonic_at(double t)
+{
+    const int64_t ns = g_startNs + (int64_t)(t * 1e9);
+    timespec ts;
+    ts.tv_sec = (time_t)(ns / 1000000000);
+    ts.tv_nsec = (long)(ns % 1000000000);
+    return ts;
+}
+
+/* The timer thread sleeps until now_seconds() reaches `next' or a nudge
+ * comes: on the condition until shortly before `next', then the rest on
+ * clock_nanosleep at the absolute time, whose wake-up is the precise one. */
+void timer_sleep_until(double next)
+{
+    pthread_mutex_lock(&g_wakeMtx);
+    const double coarse = next - kTimerFineWait;
+    while (!g_wakePending && now_seconds() < coarse) {
+        const timespec ts = monotonic_at(coarse);
+        pthread_cond_timedwait(&g_wakeCv, &g_wakeMtx, &ts);
+    }
+    const bool woken = g_wakePending;
+    g_wakePending = false;
+    pthread_mutex_unlock(&g_wakeMtx);
+    if (woken)
+        return;
+    const timespec ts = monotonic_at(next);
+    while (clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &ts, nullptr) == EINTR) {
+    }
+}
+
+/* The timer thread's priority.  The Windows build makes it time-critical;
+ * here it is the hook for SDL_SetCurrentThreadPriority
+ * (SDL_THREAD_PRIORITY_TIME_CRITICAL) once SDL is linked in, and the
+ * default priority until then. */
+void raise_timer_priority()
+{
+}
+#endif
+
+/* The interrupt source.  Sleeps with a high-resolution timer until the
+ * next event (or until a new alarm / delay nudges it), so vblanks are
+ * within a fraction of a millisecond. */
+#ifdef _WIN32
 unsigned __stdcall timer_thread(void *)
 {
     SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
@@ -436,6 +572,14 @@ unsigned __stdcall timer_thread(void *)
                                           TIMER_ALL_ACCESS);
     if (!timer)
         timer = CreateWaitableTimerW(nullptr, FALSE, nullptr);
+#else
+void *timer_thread(void *)
+{
+    raise_timer_priority();
+    /* A new pthread inherits its creator's FPU mode (a Windows thread starts
+     * in the default one): handlers run in the default mode, as there. */
+    fpu::set_mode(fpu::kDefaultMode);
+#endif
     double nextStart = now_seconds() + kVblankPeriod;
     double nextEnd = 1e30;
     for (;;) {
@@ -447,12 +591,16 @@ unsigned __stdcall timer_thread(void *)
         double a = next_alarm_time();
         if (a < next) next = a;
         if (next > now) {
+#ifdef _WIN32
             LARGE_INTEGER due;
             due.QuadPart = -(LONGLONG)((next - now) * 1e7);
             if (due.QuadPart > -1) due.QuadPart = -1;
             SetWaitableTimer(timer, &due, 0, nullptr, nullptr, FALSE);
             HANDLE hs[2] = {timer, g_timerWake};
             WaitForMultipleObjects(2, hs, FALSE, INFINITE);
+#else
+            timer_sleep_until(next);
+#endif
             now = now_seconds();
         }
         if (now >= nextStart) {
@@ -480,9 +628,15 @@ unsigned __stdcall timer_thread(void *)
 
 double now_seconds()
 {
+#ifdef _WIN32
     LARGE_INTEGER t;
     QueryPerformanceCounter(&t);
     return (double)(t.QuadPart - g_qpcStart.QuadPart) / (double)g_qpcFreq.QuadPart;
+#else
+    timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (double)((int64_t)ts.tv_sec * 1000000000 + ts.tv_nsec - g_startNs) * 1e-9;
+#endif
 }
 
 uint64_t vblank_count()
@@ -518,6 +672,7 @@ uint64_t vblanks_at(double t, double *time)
 
 void init()
 {
+#ifdef _WIN32
     QueryPerformanceFrequency(&g_qpcFreq);
     QueryPerformanceCounter(&g_qpcStart);
     timeBeginPeriod(1);
@@ -526,6 +681,25 @@ void init()
     if (h == 0)
         pclog::fatal("could not start the timer thread");
     CloseHandle((HANDLE)h);
+#else
+    timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    g_startNs = (int64_t)ts.tv_sec * 1000000000 + ts.tv_nsec;
+    pthread_condattr_t ca;
+    pthread_condattr_init(&ca);
+    pthread_condattr_setclock(&ca, CLOCK_MONOTONIC);
+    pthread_cond_init(&g_wakeCv, &ca);
+    pthread_condattr_destroy(&ca);
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+    pthread_attr_setstacksize(&attr, 256 * 1024);
+    pthread_t h;
+    const int err = pthread_create(&h, &attr, timer_thread, nullptr);
+    pthread_attr_destroy(&attr);
+    if (err != 0)
+        pclog::fatal("could not start the timer thread (error %d)", err);
+#endif
 }
 
 void start_main_thread(void (*entry)(void *), void *arg, int priority, int stackSize)
@@ -606,7 +780,7 @@ void exit_thread(bool deleteIt)
     Thread *self = tl_self;
     if (!self) {
         lk.unlock();
-        _endthreadex(0);
+        end_native_thread();
     }
     if (self->diCount > 0) {
         self->diCount = 0;
@@ -619,7 +793,7 @@ void exit_thread(bool deleteIt)
     if (g_running == self->id)
         dispatch(pop_best());
     lk.unlock();
-    _endthreadex(0);
+    end_native_thread();
 }
 
 int terminate_thread(int tid)
@@ -864,7 +1038,11 @@ void wait_until(double t)
     while ((now = now_seconds()) < t - 0.0008)
         delay_thread((int)((t - 0.0008 - now) * 1e6) + 1);
     while (now_seconds() < t)
+#ifdef _WIN32
         YieldProcessor();
+#else
+        __asm__ __volatile__("pause");
+#endif
 }
 
 int delay_thread(int usec)
@@ -876,7 +1054,7 @@ int delay_thread(int usec)
     self->status = ST_WAIT;
     self->waitType = WAIT_DELAY;
     self->delayUntil = now_seconds() + usec * 1e-6;
-    SetEvent(g_timerWake);
+    nudge_timer();
     reschedule(lk);
     return 0;
 }
@@ -1061,7 +1239,7 @@ int set_alarm(uint16_t hsyncs, void (*cb)(int, uint16_t, void *), void *arg)
         id = g_nextAlarmId++;
         g_alarms.push_back(Alarm{id, now_seconds() + hsyncs / kHsyncRate, hsyncs, cb, arg});
     }
-    SetEvent(g_timerWake);
+    nudge_timer();
     return id;
 }
 
@@ -1092,7 +1270,11 @@ void log_threads(const char *why)
         int semaCount, semaWaiters;
         double delayLeft;
         void (*entry)(void *);
+#ifdef _WIN32
         HANDLE native;
+#else
+        int generation;
+#endif
     };
     static Snap snaps[kMaxThreads];
     int n = 0, running;
@@ -1121,10 +1303,14 @@ void log_threads(const char *why)
             }
             s.delayLeft = (t.delayUntil - now) * 1000.0;
             s.entry = t.entry;
+#ifdef _WIN32
             s.native = nullptr;
             if (t.native)
                 DuplicateHandle(GetCurrentProcess(), t.native, GetCurrentProcess(), &s.native, 0, FALSE,
                                 DUPLICATE_SAME_ACCESS);
+#else
+            s.generation = t.generation;
+#endif
         }
     }
 
@@ -1168,11 +1354,24 @@ void log_threads(const char *why)
         crash::describe_address((const void *)s.entry, entry, sizeof(entry));
         pclog::write("sched: thread %d, priority %d (%d at start)%s: %s; %s", s.id, s.prio, s.initPrio,
                      s.diCount > 0 ? ", interrupts off" : "", state, entry);
+#ifdef _WIN32
         if (s.native) {
             if (GetThreadId(s.native) != GetCurrentThreadId())
                 crash::log_stack(s.native, "sched:     ");
             CloseHandle(s.native);
         }
+#else
+        /* No handle keeps a detached pthread alive: its stack is read under
+         * the lock, which a game thread takes before it ends, and only if it
+         * is still the native thread seen above. */
+        {
+            std::lock_guard<std::mutex> lk(g_mtx);
+            const Thread &t = g_threads[s.id];
+            if (t.used && t.status != ST_DORMANT && t.generation == s.generation && t.hasNative &&
+                !pthread_equal(t.native, pthread_self()))
+                crash::log_stack((void *)(uintptr_t)t.native, "sched:     ");
+        }
+#endif
     }
 }
 
