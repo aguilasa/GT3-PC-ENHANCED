@@ -9,6 +9,9 @@
 
 #include <d3dcompiler.h>
 #include <dxgi1_5.h>
+#ifndef _WIN32
+#include "engine/pgl/native/shader_blobs.h"   /* (no D3DCompile: the shaders compiled offline) */
+#endif
 
 #include <algorithm>
 #include <cmath>
@@ -871,6 +874,7 @@ namespace gpu {
 
 static ID3DBlob *compile(const char *name, const char *source, const char *entry, const char *target)
 {
+#ifdef _WIN32
     ID3DBlob *code = nullptr, *errors = nullptr;
     HRESULT hr = D3DCompile(source, strlen(source), name, nullptr, nullptr, entry, target,
                             D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &code, &errors);
@@ -881,6 +885,17 @@ static ID3DBlob *compile(const char *name, const char *source, const char *entry
     if (errors)
         errors->Release();
     return code;
+#else
+    /* (the blob compiled offline from the same source, name, entry and
+     * target: shader_blobs.h, tools/shader_blobs) */
+    const shader_blobs::Blob *b = shader_blobs::find(name, entry, target, "");
+    if (b == nullptr)
+        pclog::fatal("shader %s (%s %s): not in shader_blobs.h", name, entry, target);
+    if (b->source_hash != shader_blobs::source_hash(source, strlen(source)))
+        pclog::fatal("shader %s (%s %s): shader_blobs.h was made from another source (regenerate it)", name, entry,
+                     target);
+    return new shader_blobs::BlobRef(*b);
+#endif
 }
 
 ID3D11VertexShader *compile_vs(const char *name, const char *source, const char *entry, ID3DBlob **bytecode)

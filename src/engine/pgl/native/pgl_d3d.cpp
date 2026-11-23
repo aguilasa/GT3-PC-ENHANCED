@@ -29,6 +29,10 @@
 
 #include <d3d11_1.h>
 #include <d3dcompiler.h>
+#ifndef _WIN32
+#include <string>
+#include "engine/pgl/native/shader_blobs.h"   /* (no D3DCompile: the shaders compiled offline) */
+#endif
 
 #include "platform/gpu.h"
 #include "platform/log.h"
@@ -1364,6 +1368,7 @@ namespace {
 Com<ID3DBlob> compile(const char *section, const char *entry, const char *target, const char *v1 = nullptr,
                       const char *v2 = nullptr, const char *v3 = nullptr, bool fatal = true)
 {
+#ifdef _WIN32
     Com<ID3DBlob> code, errors;
     D3D_SHADER_MACRO defs[5] = {{section, "1"}};
     int n = 1;
@@ -1382,6 +1387,28 @@ Com<ID3DBlob> compile(const char *section, const char *entry, const char *target
         code.reset();
     }
     return code;
+#else
+    /* (the blob compiled offline from this kHlsl with the same name, section,
+     * entry, target and macros: shader_blobs.h, tools/shader_blobs) */
+    static const uint64_t kHash = shader_blobs::source_hash(kHlsl, strlen(kHlsl));
+    std::string macros = section;
+    for (const char *v : {v1, v2, v3})
+        if (v != nullptr)
+            macros.append(" ").append(v);
+    Com<ID3DBlob> code;
+    const shader_blobs::Blob *b = shader_blobs::find("pgl_shaders.hlsl", entry, target, macros.c_str());
+    const char *missing = b == nullptr ? "not in shader_blobs.h"
+                        : b->source_hash != kHash ? "shader_blobs.h was made from another HLSL (regenerate it)"
+                                                  : nullptr;
+    if (missing != nullptr) {
+        if (fatal)
+            pclog::fatal("pgl: shader %s (%s %s): %s", entry, target, macros.c_str(), missing);
+        pclog::write("pgl: shader %s (%s %s): %s", entry, target, macros.c_str(), missing);
+        return code;
+    }
+    *code.put() = new shader_blobs::BlobRef(*b);
+    return code;
+#endif
 }
 
 Com<ID3D11Buffer> make_cb(size_t bytes)
