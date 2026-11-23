@@ -30,10 +30,22 @@ add_library(pssgame_decomp OBJECT
     ${GT3PC}/src/engine/media/mpeg_player_pc.cpp
     ${GT3PC}/src/engine/pdi/T522_pdimpeg.cpp)
 target_include_directories(pssgame_decomp PRIVATE ${GT3PC}/include ${GT3PC}/src)
-target_compile_options(pssgame_decomp PRIVATE /FI${GT3PC}/include/pc_prelude.h /permissive /bigobj /EHsc /W0
-    /Zc:threadSafeInit-)
-target_compile_definitions(pssgame_decomp PRIVATE GT3_PC=1 _CRT_SECURE_NO_WARNINGS _CRT_NONSTDC_NO_WARNINGS
-    NOMINMAX WIN32_LEAN_AND_MEAN)
+# The options are GT3_DECOMP_OPTIONS of src/CMakeLists.txt (set there, in
+# another directory scope, so repeated here; keep the two in step).
+if(MSVC)
+    target_compile_options(pssgame_decomp PRIVATE /FI${GT3PC}/include/pc_prelude.h /permissive /bigobj /EHsc /W0
+        /Zc:threadSafeInit-)
+    target_compile_definitions(pssgame_decomp PRIVATE GT3_PC=1 _CRT_SECURE_NO_WARNINGS _CRT_NONSTDC_NO_WARNINGS
+        NOMINMAX WIN32_LEAN_AND_MEAN)
+else()
+    target_compile_options(pssgame_decomp PRIVATE
+        -include ${GT3PC}/include/pc_prelude.h
+        -w -fno-threadsafe-statics -fno-strict-aliasing -fwrapv -fno-delete-null-pointer-checks
+        -msse2 -mfpmath=sse -ffp-contract=off -march=pentium4
+        $<$<COMPILE_LANG_AND_ID:CXX,GNU>:-fpermissive>)
+    target_compile_definitions(pssgame_decomp PRIVATE GT3_PC=1)
+    set_target_properties(pssgame_decomp PROPERTIES CXX_EXTENSIONS ON)
+endif()
 
 add_executable(pssgame
     harness/pssgame.cpp

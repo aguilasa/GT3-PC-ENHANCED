@@ -28,10 +28,22 @@ add_library(sndgame_decomp OBJECT
     ${GT3PC}/src/engine/pdi/T520_pdispu2.cpp
     ${GT3PC}/src/engine/pdi/T521_pdibgm.cpp)
 target_include_directories(sndgame_decomp PRIVATE ${GT3PC}/include ${GT3PC}/src)
-target_compile_options(sndgame_decomp PRIVATE /FI${GT3PC}/include/pc_prelude.h /permissive /bigobj /EHsc /W0
-    /Zc:threadSafeInit-)
-target_compile_definitions(sndgame_decomp PRIVATE GT3_PC=1 _CRT_SECURE_NO_WARNINGS _CRT_NONSTDC_NO_WARNINGS
-    NOMINMAX WIN32_LEAN_AND_MEAN)
+# The options are GT3_DECOMP_OPTIONS of src/CMakeLists.txt (set there, in
+# another directory scope, so repeated here; keep the two in step).
+if(MSVC)
+    target_compile_options(sndgame_decomp PRIVATE /FI${GT3PC}/include/pc_prelude.h /permissive /bigobj /EHsc /W0
+        /Zc:threadSafeInit-)
+    target_compile_definitions(sndgame_decomp PRIVATE GT3_PC=1 _CRT_SECURE_NO_WARNINGS _CRT_NONSTDC_NO_WARNINGS
+        NOMINMAX WIN32_LEAN_AND_MEAN)
+else()
+    target_compile_options(sndgame_decomp PRIVATE
+        -include ${GT3PC}/include/pc_prelude.h
+        -w -fno-threadsafe-statics -fno-strict-aliasing -fwrapv -fno-delete-null-pointer-checks
+        -msse2 -mfpmath=sse -ffp-contract=off -march=pentium4
+        $<$<COMPILE_LANG_AND_ID:CXX,GNU>:-fpermissive>)
+    target_compile_definitions(sndgame_decomp PRIVATE GT3_PC=1)
+    set_target_properties(sndgame_decomp PROPERTIES CXX_EXTENSIONS ON)
+endif()
 
 add_executable(sndgame sndgame.cpp banks.cpp $<TARGET_OBJECTS:sndgame_decomp>)
 target_include_directories(sndgame PRIVATE ${GT3PC}/src ${CMAKE_CURRENT_SOURCE_DIR})
