@@ -20,8 +20,8 @@
 
 #include <cstdlib>
 
-#include <intrin.h>
-#include <windows.h>
+#include "engine/pgl/native/pgl_intrin.h"
+#include "engine/pgl/native/pgl_win32.h"
 
 #include "platform/fpu.h"
 #include "platform/frame_monitor.h"

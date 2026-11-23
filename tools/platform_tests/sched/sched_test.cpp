@@ -64,6 +64,7 @@ void close() {}
 
 namespace crash {
 void log_stack(void *, const char *) {}
+void prepare_thread() {}
 void describe_address(const void *addr, char *out, unsigned outSize)
 {
     snprintf(out, outSize, "%p", addr);

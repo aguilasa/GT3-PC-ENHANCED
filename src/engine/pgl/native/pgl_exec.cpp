@@ -35,11 +35,12 @@
  * pixels outside those read past them, an atlas' next picture (docs/
  * renderer.md 4, "Sprite samples"). */
 #include "engine/pgl/native/pgl_d3d.h"
+#include "engine/pgl/native/pgl_win32.h"   /* (the Win32 calls off Windows too) */
 #include "engine/pgl/native/pgl_capture.h"  /* PC (2026-11-06): the frame capture (F11) */
 
 #include <algorithm>
 #include <atomic>
-#include <intrin.h>
+#include "engine/pgl/native/pgl_intrin.h"
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -1293,7 +1294,7 @@ MirrorPlan mirror_plan(const SubState &s, const gs::Pass &pass, uint8_t mask, in
  * the target (the lazy mirror's measure of a pass) */
 inline uint32_t area_px(const D3D11_RECT &a, const D3D11_RECT &sc, int nw, int nh)
 {
-    const LONG l = std::max(std::max(a.left, sc.left), 0L), t = std::max(std::max(a.top, sc.top), 0L);
+    const LONG l = std::max(std::max(a.left, sc.left), (LONG)0), t = std::max(std::max(a.top, sc.top), (LONG)0);
     const LONG r = std::min(std::min(a.right, sc.right), (LONG)nw), b = std::min(std::min(a.bottom, sc.bottom), (LONG)nh);
     return (r > l && b > t) ? (uint32_t)(r - l) * (uint32_t)(b - t) : 0u;
 }
@@ -3014,7 +3015,7 @@ void draw_passes(bool indexed, uint32_t count, uint32_t first, int32_t baseVerte
                 d.targetW = (uint16_t)s.nw;
                 d.targetH = (uint16_t)s.nh;
                 const D3D11_RECT &r = area != nullptr ? *area : b.scissor;
-                auto c16 = [](LONG v) { return (int16_t)std::max(-32768L, std::min(32767L, v)); };
+                auto c16 = [](LONG v) { return (int16_t)std::max((LONG)-32768, std::min((LONG)32767, v)); };
                 d.x0 = c16(r.left);
                 d.y0 = c16(r.top);
                 d.x1 = c16(r.right);

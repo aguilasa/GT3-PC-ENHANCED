@@ -5,8 +5,17 @@
 #include "platform/paths.h"
 #include "platform/png_image.h"
 #include "platform/ui_text.h"                  /* PC (2026-11-16): the interface's languages */
+#include "platform/os/fs.h"
 
+#ifdef _WIN32
 #include <windows.h>
+#else
+#include <errno.h>
+#include <sys/resource.h>
+#include <sys/syscall.h>
+#include <time.h>
+#include <unistd.h>
+#endif
 
 #include <atomic>
 #include <mutex>
@@ -26,35 +35,61 @@ std::atomic<int> g_taking{0};               /* taken, its picture not yet handed
 std::atomic<int> g_writing{0};              /* handed over, being written */
 std::mutex g_write;                         /* one written at a time: the names chosen in order */
 
-std::wstring wide(const std::string &s)
+/* The local time a screenshot was taken at. */
+struct Stamp {
+    unsigned year, month, day, hour, minute, second;
+};
+
+Stamp local_now()
 {
-    const int n = MultiByteToWideChar(CP_ACP, 0, s.c_str(), (int)s.size(), nullptr, 0);
-    std::wstring w((size_t)(n > 0 ? n : 0), L'\0');
-    if (n > 0)
-        MultiByteToWideChar(CP_ACP, 0, s.c_str(), (int)s.size(), &w[0], n);
-    return w;
+#ifdef _WIN32
+    SYSTEMTIME at;
+    GetLocalTime(&at);
+    return {at.wYear, at.wMonth, at.wDay, at.wHour, at.wMinute, at.wSecond};
+#else
+    const time_t t = time(nullptr);
+    struct tm at = {};
+    localtime_r(&t, &at);
+    return {(unsigned)at.tm_year + 1900u, (unsigned)at.tm_mon + 1u, (unsigned)at.tm_mday, (unsigned)at.tm_hour,
+            (unsigned)at.tm_min, (unsigned)at.tm_sec};
+#endif
+}
+
+/* The calling thread below the game's (it writes in the background). */
+void lower_priority()
+{
+#ifdef _WIN32
+    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
+#else
+    const id_t tid = (id_t)syscall(SYS_gettid);
+    errno = 0;
+    const int nice = getpriority(PRIO_PROCESS, tid);
+    if (errno == 0 && nice < 19)
+        setpriority(PRIO_PROCESS, tid, nice + 2);
+#endif
 }
 
 /* The picture as screenshots\gt3pc_<date>_<time>[_N].png (the time it was
- * taken; _2 .. _99 after one of the same second); a message either way. */
-void write(const std::vector<uint8_t> &px, int w, int h, const SYSTEMTIME &at)
+ * taken; _2 .. _99 after one of the same second); a message either way.
+ * (The folder's path is native text: the ANSI code page on Windows.) */
+void write(const std::vector<uint8_t> &px, int w, int h, const Stamp &at)
 {
     std::lock_guard<std::mutex> hold(g_write);
     const std::string &dir = paths::screenshots_dir();
-    const std::wstring wdir = wide(dir);
-    CreateDirectoryW(wdir.c_str(), nullptr);    /* (there already: nothing) */
+    const std::string udir = fs::native_to_utf8(dir);
+    fs::make_dir(udir);                         /* (there already: nothing) */
     char stem[48], file[64] = "";
-    snprintf(stem, sizeof(stem), "gt3pc_%04u-%02u-%02u_%02u-%02u-%02u", at.wYear, at.wMonth, at.wDay, at.wHour,
-             at.wMinute, at.wSecond);
+    snprintf(stem, sizeof(stem), "gt3pc_%04u-%02u-%02u_%02u-%02u-%02u", at.year, at.month, at.day, at.hour,
+             at.minute, at.second);
     for (int n = 1; n < 100; n++) {
         if (n == 1)
             snprintf(file, sizeof(file), "%s.png", stem);
         else
             snprintf(file, sizeof(file), "%s_%d.png", stem, n);
-        if (GetFileAttributesW((wdir + wide(file)).c_str()) == INVALID_FILE_ATTRIBUTES)
+        if (!fs::exists(udir + file))
             break;
     }
-    const bool ok = png_image::encode_file(wdir + wide(file), px.data(), w, h);
+    const bool ok = png_image::encode_file(fs::widen(udir + file), px.data(), w, h);
     char msg[256];                              /* PC (2026-11-16): 64 before (UTF-8 translations) */
     if (ok) {
         pclog::write("screenshot: %s%s (%d x %d)", dir.c_str(), file, w, h);
@@ -98,13 +133,12 @@ void failed(const char *why)
 
 void save(std::vector<uint8_t> &&rgba, int w, int h)
 {
-    SYSTEMTIME at;
-    GetLocalTime(&at);
+    const Stamp at = local_now();
     g_writing++;                            /* (before: pending() never 0 meanwhile) */
     g_taking = 0;
     try {
         std::thread([px = std::move(rgba), w, h, at] {
-            SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);   /* (the game first) */
+            lower_priority();               /* (the game first) */
             write(px, w, h, at);
             g_writing--;
         }).detach();

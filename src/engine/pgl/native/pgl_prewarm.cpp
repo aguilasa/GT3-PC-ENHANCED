@@ -28,7 +28,7 @@
 #include <exception>
 #include <new>
 
-#include <windows.h>
+#include "engine/pgl/native/pgl_win32.h"
 
 #include "platform/log.h"
 #include "platform/memstat.h"               /* PC (2026-11-07): the memory line */

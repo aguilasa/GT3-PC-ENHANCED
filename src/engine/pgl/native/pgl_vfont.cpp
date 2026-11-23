@@ -3,7 +3,8 @@
  *
  * A vector face (VFace) stands beside each face of a loaded font set, keyed
  * by the set's path and the face's name (a set loaded again finds its faces'
- * again).  Its font (a FontFile: DirectWrite's face of the file) is scaled so
+ * again).  Its font (a FontFile: DirectWrite's face of the file; off Windows
+ * stb_truetype's) is scaled so
  * that the reference character - "H", else "0", else "1" - is as tall as the
  * original's white fill, measured from the original's palette #1 (its
  * coverage, decoded with gstex), on the same baseline.
@@ -37,12 +38,22 @@
 #include <unordered_map>
 #include <vector>
 
+#ifdef _WIN32
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
 #include <windows.h>
 #include <d2d1.h>
 #include <dwrite_1.h>
+#else
+/* the fonts read by stb_truetype (third_party_src/stb), its code in this file
+ * only; the JIS codes through EUC-JP (code page 20932's table) */
+#define STB_TRUETYPE_IMPLEMENTATION
+#define STBTT_STATIC
+#include "stb/stb_truetype.h"
+#include "platform/os/eucjp.h"
+#include "platform/os/fs.h"
+#endif
 
 #include "engine/pgl/native/gs_tex1.h"
 #include "engine/pgl/native/gs_tex_space.h"
@@ -106,12 +117,28 @@ struct Outline {
     bool empty = true;
 };
 
+#ifndef _WIN32
+/* DWRITE_FONT_METRICS' fields used here, in design units */
+struct FontMetrics {
+    uint16_t designUnitsPerEm = 0;
+    uint16_t ascent = 0, descent = 0;
+    int16_t capHeight = 0;
+};
+#endif
+
 struct FontFile {
     std::string path;               /* the host path (the log) */
+#ifdef _WIN32
     IDWriteFontFace *face = nullptr;
     IDWriteFontFace1 *face1 = nullptr;
     bool kerns = false;
     DWRITE_FONT_METRICS m = {};
+#else
+    std::vector<unsigned char> data;        /* the file (stb_truetype reads it in place) */
+    stbtt_fontinfo info = {};
+    bool kerns = false;
+    FontMetrics m;
+#endif
     std::unordered_map<uint16_t, Outline> outlines;
     std::unordered_map<uint32_t, float> kern;   /* (a << 16 | b) -> ems */
 };
@@ -152,8 +179,10 @@ struct VFace {
 constexpr uint32_t kKanjiKey = 0x10000u;
 constexpr int kTimeDash = 0x7F;             /* race_format_time's "-'--.---" */
 
+#ifdef _WIN32
 IDWriteFactory *g_dw;
 bool g_dwFailed;
+#endif
 std::unordered_map<std::string, std::unique_ptr<FontFile>> g_files;     /* host path (lower) -> font, null: unusable */
 std::unordered_map<std::string, std::unique_ptr<VFace>> g_faces;        /* "path|face" */
 std::unordered_map<const void *, VFace *> g_byFont;                     /* PglFont -> its vector side */
@@ -183,6 +212,7 @@ std::string folder_of(const char *path)
     return p + "/";
 }
 
+#ifdef _WIN32
 bool dw_init()
 {
     if (g_dw != nullptr)
@@ -248,6 +278,61 @@ FontFile *load_font(const std::string &hostPath)
     return r;
 }
 
+#else /* !_WIN32 */
+
+/* ======================================================================== */
+/* Font files                                                               */
+/* ======================================================================== */
+
+/* OS/2's sCapHeight (version 2 and later), else 0. */
+int16_t os2_cap_height(const stbtt_fontinfo &info)
+{
+    const stbtt_uint32 os2 = stbtt__find_table(info.data, (stbtt_uint32)info.fontstart, "OS/2");
+    if (os2 == 0 || ttUSHORT(info.data + os2) < 2)
+        return 0;
+    return ttSHORT(info.data + os2 + 88);
+}
+
+FontFile *load_font(const std::string &hostPath)
+{
+    const std::string key = lower(hostPath);
+    auto it = g_files.find(key);
+    if (it != g_files.end())
+        return it->second.get();
+    g_files[key] = nullptr;
+    char full[1024];
+    std::string bytes;
+    if (host_file_full_path(hostPath.c_str(), full, sizeof(full)) != 0 || !fs::read_file(full, &bytes))
+        return nullptr;
+    auto f = std::make_unique<FontFile>();
+    f->path = hostPath;
+    f->data.assign(bytes.begin(), bytes.end());
+    const int offset = stbtt_GetFontOffsetForIndex(f->data.data(), 0);   /* (a .ttc: its first face) */
+    if (offset < 0 || !stbtt_InitFont(&f->info, f->data.data(), offset)) {
+        pclog::write("PC: vector font: %s is not a font stb_truetype reads: not used", hostPath.c_str());
+        return nullptr;
+    }
+    const float perUnit = stbtt_ScaleForMappingEmToPixels(&f->info, 1.0f);
+    f->m.designUnitsPerEm = perUnit > 0.0f ? (uint16_t)std::lround(1.0f / perUnit) : 0;
+    int ascent = 0, descent = 0, gap = 0;
+    stbtt_GetFontVMetrics(&f->info, &ascent, &descent, &gap);
+    f->m.ascent = (uint16_t)std::max(0, ascent);
+    f->m.descent = (uint16_t)std::max(0, -descent);
+    f->m.capHeight = os2_cap_height(f->info);
+    f->kerns = f->info.kern != 0;           /* (the 'kern' table's pairs, as DirectWrite's) */
+    if (f->m.designUnitsPerEm == 0) {
+        pclog::write("PC: vector font: %s has no em: not used", hostPath.c_str());
+        return nullptr;
+    }
+    pclog::write("PC: vector font: %s (%u units per em%s)", hostPath.c_str(), f->m.designUnitsPerEm,
+                 f->kerns ? ", kerning pairs" : "");
+    FontFile *r = f.get();
+    g_files[key] = std::move(f);
+    return r;
+}
+
+#endif /* _WIN32 */
+
 /* <folder><name>.ttf / .otf / .ttc, the first present */
 FontFile *find_font(const std::string &folder, const char *name)
 {
@@ -260,6 +345,7 @@ FontFile *find_font(const std::string &folder, const char *name)
     return nullptr;
 }
 
+#ifdef _WIN32
 uint16_t glyph_index(FontFile *f, uint32_t ucs)
 {
     UINT16 index = 0;
@@ -366,6 +452,125 @@ const Outline &glyph_outline(FontFile *f, uint16_t index)
     }
     return o;
 }
+#else /* !_WIN32 */
+
+uint16_t glyph_index(FontFile *f, uint32_t ucs)
+{
+    if (ucs == 0)
+        return 0;
+    return (uint16_t)stbtt_FindGlyphIndex(&f->info, (int)ucs);
+}
+
+float glyph_advance(FontFile *f, uint16_t index)
+{
+    int advance = 0, bearing = 0;
+    stbtt_GetGlyphHMetrics(&f->info, index, &advance, &bearing);
+    return (float)advance / (float)f->m.designUnitsPerEm;
+}
+
+/* A glyph's outline as edges, its curves flattened (the font's units to ems,
+ * y down, as DirectWrite's outline at an em of 1). */
+class Flatten {
+public:
+    explicit Flatten(Outline &o) : o_(o) {}
+    void begin(float x, float y)
+    {
+        end();
+        start_ = cur_ = {x, y};
+        open_ = true;
+    }
+    void quad(float cx, float cy, float x, float y)
+    {
+        const Pt p0 = cur_, p1 = {cx, cy}, p2 = {x, y};
+        const float ax = p0.x - 2 * p1.x + p2.x, ay = p0.y - 2 * p1.y + p2.y;
+        const float dd = 2.0f * std::sqrt(ax * ax + ay * ay);
+        const int steps = std::max(1, std::min(64, (int)std::ceil(std::sqrt(dd / (8.0f * kFlatTol)))));
+        for (int s = 1; s <= steps; s++) {
+            const float t = (float)s / (float)steps, u = 1.0f - t;
+            line({u * u * p0.x + 2 * u * t * p1.x + t * t * p2.x, u * u * p0.y + 2 * u * t * p1.y + t * t * p2.y});
+        }
+    }
+    void cubic(float c1x, float c1y, float c2x, float c2y, float x, float y)
+    {
+        const Pt p0 = cur_, p1 = {c1x, c1y}, p2 = {c2x, c2y}, p3 = {x, y};
+        const float ax = p0.x - 2 * p1.x + p2.x, ay = p0.y - 2 * p1.y + p2.y;
+        const float bx = p1.x - 2 * p2.x + p3.x, by = p1.y - 2 * p2.y + p3.y;
+        const float dd = 6.0f * std::sqrt(std::max(ax * ax + ay * ay, bx * bx + by * by));
+        const int steps = std::max(1, std::min(64, (int)std::ceil(std::sqrt(dd / (8.0f * kFlatTol)))));
+        for (int s = 1; s <= steps; s++) {
+            const float t = (float)s / (float)steps, u = 1.0f - t;
+            const float w0 = u * u * u, w1 = 3 * u * u * t, w2 = 3 * u * t * t, w3 = t * t * t;
+            line({w0 * p0.x + w1 * p1.x + w2 * p2.x + w3 * p3.x, w0 * p0.y + w1 * p1.y + w2 * p2.y + w3 * p3.y});
+        }
+    }
+    void to(float x, float y) { line({x, y}); }
+    void end()
+    {
+        if (open_)
+            line(start_);                   /* (filled: closed either way) */
+        open_ = false;
+    }
+
+private:
+    struct Pt {
+        float x, y;
+    };
+    void line(Pt p)
+    {
+        if (p.x != cur_.x || p.y != cur_.y) {
+            const float e[4] = {cur_.x, cur_.y, p.x, p.y};
+            o_.e.insert(o_.e.end(), e, e + 4);
+            for (int i = 0; i < 4; i += 2) {
+                if (o_.empty) {
+                    o_.x0 = o_.x1 = e[i];
+                    o_.y0 = o_.y1 = e[i + 1];
+                    o_.empty = false;
+                }
+                o_.x0 = std::min(o_.x0, e[i]);
+                o_.x1 = std::max(o_.x1, e[i]);
+                o_.y0 = std::min(o_.y0, e[i + 1]);
+                o_.y1 = std::max(o_.y1, e[i + 1]);
+            }
+        }
+        cur_ = p;
+    }
+    Outline &o_;
+    Pt start_ = {0, 0}, cur_ = {0, 0};
+    bool open_ = false;
+};
+
+const Outline &glyph_outline(FontFile *f, uint16_t index)
+{
+    auto it = f->outlines.find(index);
+    if (it != f->outlines.end())
+        return it->second;
+    Outline &o = f->outlines[index];
+    stbtt_vertex *v = nullptr;
+    const int n = stbtt_GetGlyphShape(&f->info, index, &v);
+    const float k = 1.0f / (float)f->m.designUnitsPerEm;
+    Flatten sink(o);
+    for (int i = 0; i < n; i++) {
+        const float x = v[i].x * k, y = -v[i].y * k;
+        switch (v[i].type) {
+        case STBTT_vmove:
+            sink.begin(x, y);
+            break;
+        case STBTT_vline:
+            sink.to(x, y);
+            break;
+        case STBTT_vcurve:
+            sink.quad(v[i].cx * k, -v[i].cy * k, x, y);
+            break;
+        case STBTT_vcubic:
+            sink.cubic(v[i].cx * k, -v[i].cy * k, v[i].cx1 * k, -v[i].cy1 * k, x, y);
+            break;
+        }
+    }
+    sink.end();
+    stbtt_FreeShape(&f->info, v);
+    return o;
+}
+#endif /* _WIN32 */
 
 /* ======================================================================== */
 /* Rasterizing                                                              */
@@ -834,6 +1039,7 @@ int glyph_out(VFace &vf, uint32_t id, PglVGlyph *out)
     return 1;
 }
 
+#ifdef _WIN32
 /* JIS row / cell -> Unicode (through Shift_JIS, code page 932) */
 uint32_t jis_unicode(int jis)
 {
@@ -862,6 +1068,51 @@ uint32_t code_unicode(int code)
     }
     return code > 0 && code < 0x110000 ? (uint32_t)code : 0;
 }
+#else /* !_WIN32 */
+
+/* JIS row / cell -> Unicode: as code page 932 maps it (Shift_JIS, the
+ * Windows build's), through EUC-JP (code page 20932's JIS X 0208) and the
+ * symbols the two map differently (932's fullwidth forms).  (932's NEC and IBM
+ * rows are not there.) */
+uint32_t jis_unicode(int jis)
+{
+    const int j1 = (jis >> 8) & 0x7F, j2 = jis & 0x7F;
+    if (j1 < 0x21 || j1 > 0x7E || j2 < 0x21 || j2 > 0x7E)
+        return 0;
+    static const struct {
+        uint16_t jis;
+        uint32_t ucs;
+    } k932[] = {
+        {0x2141, 0xFF5E}, {0x2142, 0x2225}, {0x215D, 0xFF0D}, {0x2171, 0xFFE0}, {0x2172, 0xFFE1},
+        {0x224C, 0xFFE2}, {0x213D, 0x2015}, {0x2140, 0xFF3C},
+    };
+    for (const auto &d : k932)
+        if (d.jis == ((j1 << 8) | j2))
+            return d.ucs;
+    const char euc[2] = {(char)(j1 | 0x80), (char)(j2 | 0x80)};
+    std::u32string w;
+    if (!eucjp::decode(euc, 2, &w) || w.size() != 1)
+        return 0;
+    return (uint32_t)w[0];
+}
+
+/* font_putc's code -> Unicode: 0x80..0x9F are Windows-1252's (the originals'
+ * glyphs there: the euro, the quotes, the dashes, ...) */
+uint32_t code_unicode(int code)
+{
+    if (code >= 0x80 && code <= 0x9F) {
+        /* (0: the bytes 1252 leaves as they are) */
+        static const uint16_t k1252[32] = {
+            0x20AC, 0,      0x201A, 0x0192, 0x201E, 0x2026, 0x2020, 0x2021,
+            0x02C6, 0x2030, 0x0160, 0x2039, 0x0152, 0,      0x017D, 0,
+            0,      0x2018, 0x2019, 0x201C, 0x201D, 0x2022, 0x2013, 0x2014,
+            0x02DC, 0x2122, 0x0161, 0x203A, 0x0153, 0,      0x017E, 0x0178,
+        };
+        return k1252[code - 0x80];
+    }
+    return code > 0 && code < 0x110000 ? (uint32_t)code : 0;
+}
+#endif /* _WIN32 */
 
 /* The time display's dash (kTimeDash): the font's en dash, as the originals'
  * (their 0x7F is a copy of 0x96, a digit wide), else its figure dash, else
@@ -1013,7 +1264,7 @@ extern "C" int pgl_vfont_kanji(void *vfp, int jis, PglVGlyph *out)
         if (ucs != 0 && g_kanji != nullptr && vf->kh > 2) {
             /* in the face's kanji cell: the em the cell less its outline, the
              * baseline at the font's ascent share of it */
-            const DWRITE_FONT_METRICS &m = g_kanji->m;
+            const auto &m = g_kanji->m;
             const float em = (float)vf->kh - 2.0f * kOutline;
             const float asc = m.ascent + m.descent > 0 ? (float)m.ascent / (float)(m.ascent + m.descent) : 0.88f;
             id = make_glyph(*vf, g_kanji, ucs, em, (float)vf->kx + kOutline, (float)vf->ky + kOutline + em * asc,
@@ -1041,11 +1292,15 @@ extern "C" float pgl_vfont_kern(void *vfp, uint32_t prev, uint32_t next)
     if (it != f->kern.end()) {
         em = it->second;
     } else {
+#ifdef _WIN32
         const UINT16 pair[2] = {a.index, b.index};
         INT32 adj[2] = {0, 0};
         em = SUCCEEDED(f->face1->GetKerningPairAdjustments(2, pair, adj))
                  ? (float)adj[0] / (float)f->m.designUnitsPerEm
                  : 0.0f;
+#else
+        em = (float)stbtt__GetGlyphKernInfoAdvance(&f->info, a.index, b.index) / (float)f->m.designUnitsPerEm;
+#endif
         f->kern[key] = em;
     }
     return em * a.emPx;

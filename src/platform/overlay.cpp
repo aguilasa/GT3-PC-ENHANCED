@@ -5,7 +5,11 @@
 #include "platform/gpu.h"
 #include "platform/log.h"
 
+#ifdef _WIN32
 #include <windows.h>
+#else
+#include <algorithm>
+#endif
 
 #include <mutex>
 #include <string.h>
@@ -105,12 +109,15 @@ using overlay_font::narrow_glyph;
 using overlay_font::upper;
 
 /* A wide glyph: MS Gothic's 12 x 12 bitmap (bit 11 the left column), its
- * advance 6 or 12 font pixels; 0: the font has none (a blank cell). */
+ * advance 6 or 12 font pixels; 0: the font has none (a blank cell).  Off
+ * Windows (no MS Gothic, no GDI) the bitmaps are a public-domain 12 px font's,
+ * built in: overlay_cjk.inc (tools/overlay_cjk/gen_overlay_cjk.py). */
 struct Wide {
     uint16_t rows[12];
     int advance;
     bool drawn;
 };
+#ifdef _WIN32
 std::mutex g_wideLock;
 std::unordered_map<uint32_t, Wide> g_wide;
 HDC g_wideDc;
@@ -174,6 +181,35 @@ const Wide &wide_glyph(uint32_t c)
     }
     return g_wide.emplace(c, w).first->second;
 }
+
+#else /* !_WIN32 */
+
+std::mutex g_wideLock;
+std::unordered_map<uint32_t, Wide> g_wide;
+
+#include "platform/overlay_cjk.inc"
+
+const Wide &wide_glyph(uint32_t c)
+{
+    std::lock_guard<std::mutex> l(g_wideLock);
+    auto it = g_wide.find(c);
+    if (it != g_wide.end())
+        return it->second;
+    Wide w = {};
+    w.advance = 6;
+    const auto *end = kCjkGlyphs + sizeof(kCjkGlyphs) / sizeof(kCjkGlyphs[0]);
+    const auto *g = std::lower_bound(kCjkGlyphs, end, c,
+                                     [](const uint16_t (&e)[13], uint32_t code) { return e[0] < code; });
+    if (g != end && (*g)[0] == c) {
+        for (int y = 0; y < 12; y++)
+            w.rows[y] = (*g)[1 + y];
+        w.advance = 12;                         /* (the font's cells are all full width) */
+        w.drawn = true;
+    }
+    return g_wide.emplace(c, w).first->second;
+}
+
+#endif /* _WIN32 */
 
 /* The next character of a UTF-8 string (a byte that starts no valid sequence:
  * itself, as Latin-1). */

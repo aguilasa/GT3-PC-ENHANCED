@@ -6,7 +6,7 @@
 #include "platform/settings.h"
 #include "platform/ui_text.h"                  /* PC (2026-11-16): the interface's languages */
 
-#include <windows.h>
+#include "platform/os/win_compat.h"
 
 #include <algorithm>
 #include <atomic>

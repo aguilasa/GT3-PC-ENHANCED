@@ -8,7 +8,14 @@
 #include "platform/paths.h"
 #include "platform/png_image.h"
 
+#ifdef _WIN32
 #include <windows.h>
+#else
+/* off Windows the files through platform/os/fs.h ('\\' and '/' both
+ * separate there) */
+#include "platform/os/fs.h"
+#include "platform/os/win_compat.h"
+#endif
 
 #include <algorithm>
 #include <atomic>
@@ -56,6 +63,7 @@ std::string lower(std::string s)
     return s;
 }
 
+#ifdef _WIN32
 std::wstring widen(const std::string &s)
 {
     const int n = MultiByteToWideChar(CP_ACP, 0, s.c_str(), -1, nullptr, 0);
@@ -66,11 +74,20 @@ std::wstring widen(const std::string &s)
     return w;
 }
 
+#else
+std::wstring widen(const std::string &s)
+{
+    return fs::widen(s);                    /* (the native text is UTF-8) */
+}
+
+#endif
+
 bool ends_with(const char *s, size_t n, const char *end, size_t endN)
 {
     return n > endN && _stricmp(s + n - endN, end) == 0;
 }
 
+#ifdef _WIN32
 bool read_file(const std::string &path, std::vector<uint8_t> *out)
 {
     HANDLE h = CreateFileA(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
@@ -101,6 +118,36 @@ std::string cache_file(const std::string &base, const std::string &path)
     return base + key;
 }
 
+#else
+bool read_file(const std::string &path, std::vector<uint8_t> *out)
+{
+    fs::File f;
+    if (!f.open(path, fs::kRead, fs::Create::open_existing, fs::kShareRead | fs::kShareDelete, fs::kSequential))
+        return false;
+    const int64_t size = f.size();
+    bool ok = size > 0 && size <= (int64_t)kMaxFile;
+    if (ok) {
+        out->resize((size_t)size);
+        ok = f.read_at(0, out->data(), (uint32_t)size) == (int)size;
+    }
+    return ok;
+}
+
+/* base + the file's size and date: its picture's name; "" without the file. */
+std::string cache_file(const std::string &base, const std::string &path)
+{
+    fs::Stat st;
+    if (!fs::stat(path, &st))
+        return std::string();
+    const uint64_t t = (uint64_t)st.modify;
+    char key[64];
+    snprintf(key, sizeof(key), "%llx-%08lx%08lx.png", (unsigned long long)st.size, (unsigned long)(t >> 32),
+             (unsigned long)(t & 0xFFFFFFFFu));
+    return base + key;
+}
+
+#endif
+
 /* host_file_list: an .mp4 preview movie that is one (else its .pss plays). */
 void add_movie(const char *file, void *arg)
 {
@@ -122,6 +169,7 @@ void add_movie(const char *file, void *arg)
 
 /* The other files of the movie's name: another movie's picture, or a write the
  * game was closed in. */
+#ifdef _WIN32
 void delete_older(const Movie &m)
 {
     WIN32_FIND_DATAA fd;
@@ -136,6 +184,25 @@ void delete_older(const Movie &m)
     } while (FindNextFileA(f, &fd));
     FindClose(f);
 }
+
+#else
+void delete_older(const Movie &m)
+{
+    const size_t cut = m.base.find_last_of("/\\") + 1;
+    const std::string folder = m.base.substr(0, cut), stem = m.base.substr(cut);
+    std::vector<fs::Entry> entries;
+    if (!fs::list(folder, &entries))
+        return;
+    for (const fs::Entry &e : entries) {
+        if (e.st.dir || _strnicmp(e.name.c_str(), stem.c_str(), stem.size()) != 0)
+            continue;
+        const std::string p = folder + e.name;
+        if (_stricmp(p.c_str(), m.cached.c_str()) != 0)
+            fs::remove_file(p);
+    }
+}
+
+#endif
 
 /* The movie's first picture saved as its file in the cache. */
 void take_picture(const Movie &m)
@@ -169,7 +236,11 @@ void take_picture(const Movie &m)
 void take_pictures(const std::vector<const Movie *> &movies)
 {
     for (const char *folder : kCacheFolders)
+#ifdef _WIN32
         CreateDirectoryA((paths::game_dir() + folder).c_str(), nullptr);
+#else
+        fs::make_dir(paths::game_dir() + folder);
+#endif
     std::atomic<size_t> next{0};
     const auto work = [&movies, &next] {
         for (size_t i = next++; i < movies.size(); i = next++)
@@ -244,7 +315,9 @@ void still_cache_prepare()
     host_file_list(kStills, add_still, nullptr);
     /* The decoder's code in memory, and kept there: the first still shown does
      * not read it from the disk either. */
+#ifdef _WIN32
     LoadLibraryW(L"windowscodecs.dll");
+#endif
     if (!g_stills.empty()) {
         const Still &s = g_stills.begin()->second;
         std::vector<uint8_t> rgba;

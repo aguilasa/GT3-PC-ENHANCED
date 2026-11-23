@@ -29,14 +29,12 @@
 #include <time.h>
 #include <wchar.h>
 
-/* ---- types (ILP32 as on 32-bit Windows; LP64 keeps the 32-bit widths) ---- */
-#if defined(__LP64__)
+/* ---- types: the 32-bit widths of Windows, spelled as DXVK-native's
+ * windows_base.h spells them (DWORD uint32_t, LONG int32_t), so that this
+ * header and the Direct3D headers (d3d11.h, dxgi.h) go in one file in
+ * either order ---- */
 typedef uint32_t DWORD;
 typedef int32_t LONG;
-#else
-typedef unsigned long DWORD;
-typedef long LONG;
-#endif
 typedef int BOOL;
 typedef unsigned char BYTE;
 typedef unsigned short WORD;
@@ -58,8 +56,12 @@ typedef void *HANDLE;
 #define FALSE 0
 #endif
 
+#ifndef WINAPI
 #define WINAPI
+#endif
+#ifndef MAX_PATH
 #define MAX_PATH 260
+#endif
 
 /* ---- strings ---- */
 #define _stricmp strcasecmp

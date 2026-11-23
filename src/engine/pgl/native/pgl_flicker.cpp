@@ -18,6 +18,7 @@
  * picture kept (its frame, the pixels changed since the one before, the
  * pixels that differ from both neighbours). */
 #include "engine/pgl/native/pgl_d3d.h"
+#include "engine/pgl/native/pgl_win32.h"   /* (the Win32 calls off Windows too) */
 
 #include <algorithm>
 #include <cstdarg>
@@ -513,7 +514,7 @@ void dump()
     }
 
     char path[MAX_PATH + 64];
-    snprintf(path, sizeof(path), "%s\\flicker_%d.txt", g_dir, g_dumps);
+    snprintf(path, sizeof(path), "%s" PGL_PATH_SEP "flicker_%d.txt", g_dir, g_dumps);
     if (FILE *t = fopen(path, "w")) {
         fprintf(t, "picture  frame  buffer  changed  flicker (pixels of 640 x 448; oldest first)\n");
         for (size_t k = 0; k < n; k++) {
@@ -538,7 +539,7 @@ void dump()
     }
     std::sort(keep.begin(), keep.end(), [](const Found &a, const Found &b) { return a.k < b.k; });
     pclog::write("pgl flicker: F8 (%d): %u pictures kept; %u differ from both neighbours where they agree"
-                 " (%u reported), %s\\flicker_%d.txt", g_dumps, (unsigned)n, (unsigned)found.size(),
+                 " (%u reported), %s" PGL_PATH_SEP "flicker_%d.txt", g_dumps, (unsigned)n, (unsigned)found.size(),
                  (unsigned)keep.size(), g_dir, g_dumps);
     int idx = 0;
     for (const Found &f : keep) {
@@ -550,7 +551,7 @@ void dump()
         const char *tags[3] = {"a", "b", "c"};
         for (int j = 0; j < 3; j++) {
             read_slot(slot_at(n, f.k - 1 + j), staging.get(), p0);
-            snprintf(path, sizeof(path), "%s\\flicker_%d_%d_%s.bmp", g_dir, g_dumps, idx, tags[j]);
+            snprintf(path, sizeof(path), "%s" PGL_PATH_SEP "flicker_%d_%d_%s.bmp", g_dir, g_dumps, idx, tags[j]);
             write_bmp(path, p0);
         }
         log_draws(n, f);
@@ -575,10 +576,10 @@ bool flicker_on()
             } else {
                 char exe[MAX_PATH] = "";
                 GetModuleFileNameA(nullptr, exe, MAX_PATH);
-                char *slash = strrchr(exe, '\\');
+                char *slash = strrchr(exe, PGL_PATH_SEP[0]);
                 if (slash != nullptr)
                     *slash = 0;
-                snprintf(g_dir, sizeof(g_dir), "%s\\flicker", exe);
+                snprintf(g_dir, sizeof(g_dir), "%s" PGL_PATH_SEP "flicker", exe);
             }
             const size_t len = strlen(g_dir);
             if (len > 0 && (g_dir[len - 1] == '\\' || g_dir[len - 1] == '/'))

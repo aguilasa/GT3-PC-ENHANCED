@@ -4,7 +4,11 @@
 #include "platform/overlay.h"
 #include "platform/settings.h"
 
+#ifdef _WIN32
 #include <windows.h>
+#else
+#include <time.h>
+#endif
 
 #include <algorithm>
 #include <atomic>
@@ -100,6 +104,7 @@ const uint32_t kRowColors[kRows] = {
 
 int64_t qpc()
 {
+#ifdef _WIN32
     LARGE_INTEGER v;
     QueryPerformanceCounter(&v);
     if (g_msPerCount == 0.0) {
@@ -108,6 +113,13 @@ int64_t qpc()
         g_msPerCount = 1000.0 / (double)f.QuadPart;
     }
     return v.QuadPart;
+#else
+    /* (CLOCK_MONOTONIC in ns, as pgl's QueryPerformanceCounter off Windows) */
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    g_msPerCount = 1e-6;
+    return (int64_t)ts.tv_sec * 1000000000LL + ts.tv_nsec;
+#endif
 }
 
 /* A frame's rows: EXECUTE without its GPU wait, OTHER what the parts leave

@@ -139,11 +139,10 @@ target_compile_options(gt3_engine PRIVATE ${GT3_DECOMP_OPTIONS})
 target_compile_definitions(gt3_engine PRIVATE GT3_PC=1)
 
 if(NOT MSVC)
-    # GCC / Clang: the decompiled code (gnu++17) and the platform layer's
-    # files that are ported (the window, the controllers and the sound output
-    # on SDL3, the Direct3D device on DXVK-native); the rest of the renderer
-    # (and the panels drawn with it), the movies and the executables are
-    # still Windows-only.
+    # GCC / Clang: the decompiled code (gnu++17), the platform layer (the
+    # window, the controllers and the sound output on SDL3, the Direct3D
+    # device on DXVK-native), the movies (no MP4 yet), the renderer and the
+    # game's executable, gt3pc; the launcher is still Windows-only.
     set_target_properties(gt3_game gt3_engine PROPERTIES CXX_EXTENSIONS ON)
     # The interface's languages: tools/lang_sync and the catalogues' generated
     # source (cmake/languages.cmake), built already.
@@ -219,6 +218,18 @@ if(NOT MSVC)
         # the Direct3D 11 device, its swap chains and the monitors (DXVK-native
         # on the SDL3 window; the shaders compiled offline: shader_blobs.h)
         platform/gpu.cpp
+        platform/frame_monitor.cpp
+        # the controller library over the keyboard, the mouse and the
+        # controllers above
+        platform/pad_pc.cpp
+        # the panels drawn with the renderer, and the screenshots (the
+        # swap chain's picture through DXVK)
+        platform/overlay.cpp
+        platform/cockpit_osd.cpp
+        platform/texture_menu.cpp
+        platform/settings_menu.cpp
+        platform/system_menu.cpp
+        platform/screenshot.cpp
     )
     set_source_files_properties(platform/sdl/window_sdl.cpp PROPERTIES
         COMPILE_DEFINITIONS GT3PC_WINDOW_ICON="${GT3PC_ROOT}/gt3pc.ico"
@@ -245,6 +256,75 @@ if(NOT MSVC)
     add_subdirectory(engine/sound/native)
     target_compile_options(gt3_sound_native PRIVATE ${GT3_PLATFORM_FLOAT_OPTIONS})
     target_link_libraries(gt3_platform PUBLIC gt3_sound_native)
+
+    # ---- the movies: the native MPEG-2 / IPU decoder and the movie services;
+    # no MP4 reader yet (mp4_movie_none.cpp: an .mp4 does not open and the
+    # .pss plays) and no movie textures shared between devices (mp4_gpu.cpp:
+    # the CPU's way)
+    include(${CMAKE_CURRENT_SOURCE_DIR}/engine/media/native/sources.cmake)
+    set(GT3_MEDIA_POSIX_SOURCES ${GT3_MEDIA_SERVICE_SOURCES})
+    list(REMOVE_ITEM GT3_MEDIA_POSIX_SOURCES ${GT3_MEDIA_NATIVE_DIR}/mp4_movie.cpp)
+    list(APPEND GT3_MEDIA_POSIX_SOURCES ${GT3_MEDIA_NATIVE_DIR}/mp4_movie_none.cpp)
+    add_library(gt3_media STATIC ${GT3_MEDIA_NATIVE_SOURCES} ${GT3_MEDIA_POSIX_SOURCES})
+    target_include_directories(gt3_media PUBLIC ${GT3PC_ROOT}/src)
+    target_compile_options(gt3_media PRIVATE ${GT3_PLATFORM_FLOAT_OPTIONS})
+    target_link_libraries(gt3_media PUBLIC gt3_platform gt3_sound_native)
+
+    # ---- the renderer on DXVK-native (the list of the Windows build's
+    # gt3_render below): the vector font on stb_truetype, the replacement
+    # textures on stb_image (third_party_src)
+    add_library(gt3_render STATIC
+        engine/pgl/native/pgl_render.cpp
+        engine/pgl/native/pgl_exec.cpp
+        engine/pgl/native/pgl_targets.cpp
+        engine/pgl/native/pgl_textures.cpp
+        engine/pgl/native/pgl_host_image.cpp
+        engine/pgl/native/pgl_movie.cpp
+        engine/pgl/native/pgl_vfont.cpp
+        engine/pgl/native/pgl_flicker.cpp
+        engine/pgl/native/pgl_capture.cpp
+        engine/pgl/native/pgl_models.cpp
+        engine/pgl/native/pgl_d3d.cpp
+        engine/pgl/native/pgl_queue.cpp
+        engine/pgl/native/pgl_prewarm.cpp
+        engine/pgl/native/pgl_texrepl.cpp
+        engine/pgl/native/pgl_math.cpp
+        engine/pgl/native/pgl_state_gs.cpp
+        engine/pgl/native/pgl_state_prim.cpp
+        engine/pgl/native/gs_tex1.cpp
+        engine/pgl/native/gs_tex_decode.cpp
+        engine/pgl/native/gs_tex_format.cpp
+        engine/pgl/native/gs_tex_layout.cpp
+        engine/pgl/native/gs_tex_space.cpp
+        engine/pgl/native/gs_imgs.cpp
+        engine/pgl/native/vif_model.cpp
+        # the Win32 calls of the renderer on POSIX (pgl_win32.h)
+        engine/pgl/native/pgl_win32_posix.cpp
+    )
+    target_include_directories(gt3_render PUBLIC ${GT3PC_ROOT}/src)
+    target_include_directories(gt3_render PRIVATE ${GT3PC_ROOT}/third_party_src)
+    target_compile_options(gt3_render PRIVATE ${GT3_PLATFORM_FLOAT_OPTIONS})
+    set_target_properties(gt3_render PROPERTIES CXX_EXTENSIONS ON)
+    target_link_libraries(gt3_render PUBLIC gt3_platform)
+
+    # ---- the executable: main_posix.cpp (main.cpp's WinMain).  The libraries
+    # outside the system (SDL3, DXVK-native in ~/opt/i386) are found through
+    # the build tree's run path, which CMake sets to their folders.  A run
+    # path serves the program's own needs only: libdxvk_d3d11 finds its
+    # libdxvk_dxgi because the program names it too (--no-as-needed: GNU ld's
+    # --as-needed, the default of some distributions' GCC, drops it, as the
+    # program calls none of its functions itself).
+    add_executable(gt3pc
+        main/main_posix.cpp
+        main/static_inits.cpp
+        $<TARGET_OBJECTS:gt3_game>
+        $<TARGET_OBJECTS:gt3_engine>
+    )
+    target_include_directories(gt3pc PRIVATE ${GT3PC_ROOT}/include ${GT3PC_ROOT}/src ${CMAKE_CURRENT_SOURCE_DIR}/main)
+    target_compile_options(gt3pc PRIVATE ${GT3_PLATFORM_FLOAT_OPTIONS})
+    target_link_libraries(gt3pc PRIVATE gt3_render gt3_media gt3_platform)
+    target_link_options(gt3pc PRIVATE LINKER:--no-as-needed)
+    gt3pc_languages(gt3pc)
     return()
 endif()
 

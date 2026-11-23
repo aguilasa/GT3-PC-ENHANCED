@@ -8,7 +8,10 @@
 #include "platform/ui_text.h"                  /* PC (2026-11-16): the interface's languages */
 #include "platform/window.h"
 
-#include <windows.h>
+#include "platform/os/win_compat.h"
+#ifndef _WIN32
+#include <SDL3/SDL_events.h>
+#endif
 
 #include <algorithm>
 #include <atomic>
@@ -53,7 +56,14 @@ Action g_pending = ACT_NONE;
 
 void close_window()
 {
+#ifdef _WIN32
     PostMessageW(window::handle(), WM_CLOSE, 0, 0);
+#else
+    /* (the window's loop ends as when it is closed) */
+    SDL_Event quit = {};
+    quit.type = SDL_EVENT_QUIT;
+    SDL_PushEvent(&quit);
+#endif
 }
 
 /* Restart / Exit now (the window closes; main.cpp restarts) */

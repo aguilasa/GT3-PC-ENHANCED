@@ -18,6 +18,7 @@
  * DISCARD at each change (a model part's constants nearly every draw: some
  * 3500 renames a race frame).  Without the driver's support: as before. */
 #include "engine/pgl/native/pgl_d3d.h"
+#include "engine/pgl/native/pgl_win32.h"   /* (the Win32 calls off Windows too) */
 #include "engine/pgl/native/pgl_capture.h"  /* PC (2026-11-06): the frame capture's bind counts and GPU queries */
 
 #include <algorithm>

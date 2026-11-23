@@ -33,7 +33,7 @@
 #include <unordered_set>
 #include <vector>
 
-#include <windows.h>
+#include "engine/pgl/native/pgl_win32.h"
 
 #include "platform/log.h"
 

@@ -24,6 +24,7 @@
  * (D3D11 needs equal sizes), so its GS geometry is the one of the last frame
  * that wrote it (depth_target_written), not of the first one it met. */
 #include "engine/pgl/native/pgl_d3d.h"
+#include "engine/pgl/native/pgl_win32.h"   /* (the Win32 calls off Windows too) */
 #include "engine/pgl/native/pgl_capture.h"  /* PC (2026-11-06): the frame capture's copies, clears, present */
 
 #include <algorithm>
@@ -1459,7 +1460,7 @@ static void dump_frame(Target &t)
     if (state != 1 || (count++ % every) != 0)
         return;
     char path[300];
-    snprintf(path, sizeof(path), "%s\\frame_%05u.bmp", dir, count - 1);
+    snprintf(path, sizeof(path), "%s" PGL_PATH_SEP "frame_%05u.bmp", dir, count - 1);
     write_target_bmp(t, path);
 }
 
@@ -1484,12 +1485,12 @@ static void trace_dump(Target &t)
         snprintf(dir, sizeof(dir), "%s", e);
     } else {
         GetModuleFileNameA(nullptr, dir, MAX_PATH);
-        char *slash = strrchr(dir, '\\');
+        char *slash = strrchr(dir, PGL_PATH_SEP[0]);
         if (slash != nullptr)
             *slash = 0;
     }
     char path[MAX_PATH + 48];
-    snprintf(path, sizeof(path), "%s\\trace_frame_%llu.bmp", dir, (unsigned long long)g_traceDumpFrame);
+    snprintf(path, sizeof(path), "%s" PGL_PATH_SEP "trace_frame_%llu.bmp", dir, (unsigned long long)g_traceDumpFrame);
     if (write_target_bmp(t, path))
         pclog::write("pgl trace: frame %llu's picture (the buffer at 0x%X, %dx%d native, GS %dx%d; shown rows %d..%d,"
                      " columns %d..%d) in %s", (unsigned long long)g_traceDumpFrame, t.base, t.nw, t.nh, t.gsW, t.gsH,
@@ -1497,7 +1498,7 @@ static void trace_dump(Target &t)
     for (auto &o : g_targets) {
         if (o.get() == &t || o->depth || o->gsW < 128 || o->gsH < 128 || o->lastUse + 1 < t.lastUse)
             continue;
-        snprintf(path, sizeof(path), "%s\\trace_frame_%llu_%X_%dx%d.bmp", dir, (unsigned long long)g_traceDumpFrame,
+        snprintf(path, sizeof(path), "%s" PGL_PATH_SEP "trace_frame_%llu_%X_%dx%d.bmp", dir, (unsigned long long)g_traceDumpFrame,
                  o->base, o->gsW, o->gsH);
         if (write_target_bmp(*o, path))
             pclog::write("pgl trace: frame %llu's buffer at 0x%X (%dx%d native, GS %dx%d) in %s",
@@ -1513,12 +1514,12 @@ static void trace_dump(Target &t)
 static void capture_dump(Target &t, const char *dir)
 {
     char path[MAX_PATH + 64];
-    snprintf(path, sizeof(path), "%s\\frame.bmp", dir);
+    snprintf(path, sizeof(path), "%s" PGL_PATH_SEP "frame.bmp", dir);
     int n = write_target_bmp(t, path) ? 1 : 0;
     for (auto &o : g_targets) {
         if (o.get() == &t || o->depth || o->gsW < 64 || o->gsH < 64 || o->lastUse + 1 < t.lastUse)
             continue;
-        snprintf(path, sizeof(path), "%s\\target_%X_%dx%d.bmp", dir, o->base, o->gsW, o->gsH);
+        snprintf(path, sizeof(path), "%s" PGL_PATH_SEP "target_%X_%dx%d.bmp", dir, o->base, o->gsW, o->gsH);
         if (write_target_bmp(*o, path))
             n++;
     }

@@ -88,7 +88,8 @@ bool active();
  * made and destroyed on the window thread (these block until it has). */
 HWND create_screen(int x, int y, int w, int h);
 void destroy_screen(HWND hwnd);
-/* The monitor (an HMONITOR) the borderless / fullscreen modes cover (the
+/* The monitor (an HMONITOR; off Windows an SDL_DisplayID, as gpu.cpp's
+ * monitors are) the borderless / fullscreen modes cover (the
  * span's monitor of the game window); nullptr: the window's own.  Applied
  * by the next apply_mode. */
 void set_full_monitor(void *monitor);

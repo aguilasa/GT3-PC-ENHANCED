@@ -30,7 +30,7 @@
 #include <vector>
 
 #include <d3d11.h>
-#include <intrin.h>
+#include "engine/pgl/native/pgl_intrin.h"
 /* winuser.h's DrawState (DrawStateA / W) would rename pgl::gs::DrawState */
 #ifdef DrawState
 #undef DrawState

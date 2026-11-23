@@ -25,6 +25,7 @@
  * for the frame.  The capture's own cost (the queries) falls on the captured
  * frame alone. */
 #include "engine/pgl/native/pgl_capture.h"
+#include "engine/pgl/native/pgl_win32.h"   /* (the Win32 calls off Windows too) */
 
 #include <algorithm>
 #include <atomic>
@@ -192,13 +193,17 @@ bool make_dir(Frame &f)
         snprintf(root, sizeof(root), "%s", e);
     } else {
         GetModuleFileNameA(nullptr, root, MAX_PATH);
-        char *slash = strrchr(root, '\\');
+        char *slash = strrchr(root, PGL_PATH_SEP[0]);
         if (slash != nullptr)
             *slash = 0;
+#ifdef _WIN32
         strncat_s(root, sizeof(root), "\\capture", _TRUNCATE);
+#else
+        strncat(root, "/capture", sizeof(root) - strlen(root) - 1);
+#endif
     }
     CreateDirectoryA(root, nullptr);
-    snprintf(f.dir, sizeof(f.dir), "%s\\frame_%llu", root, (unsigned long long)f.frame);
+    snprintf(f.dir, sizeof(f.dir), "%s" PGL_PATH_SEP "frame_%llu", root, (unsigned long long)f.frame);
     CreateDirectoryA(f.dir, nullptr);
     const DWORD a = GetFileAttributesA(f.dir);
     return a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_DIRECTORY) != 0;
@@ -296,7 +301,7 @@ void agg_row(FILE *o, const char *name, const Agg &a)
 void write_draws_csv(const Frame &f, const std::vector<const Draw *> &ord)
 {
     char path[MAX_PATH + 32];
-    snprintf(path, sizeof(path), "%s\\draws.csv", f.dir);
+    snprintf(path, sizeof(path), "%s" PGL_PATH_SEP "draws.csv", f.dir);
     FILE *o = fopen(path, "w");
     if (o == nullptr)
         return;
@@ -324,7 +329,7 @@ void write_draws_csv(const Frame &f, const std::vector<const Draw *> &ord)
 void write_cmds_csv(const Frame &f)
 {
     char path[MAX_PATH + 32];
-    snprintf(path, sizeof(path), "%s\\commands.csv", f.dir);
+    snprintf(path, sizeof(path), "%s" PGL_PATH_SEP "commands.csv", f.dir);
     FILE *o = fopen(path, "w");
     if (o == nullptr)
         return;
@@ -332,7 +337,7 @@ void write_cmds_csv(const Frame &f)
     for (const Cmd &c : f.cmds)
         fprintf(o, "%u,%s,%d,%u\n", c.index, cmd_name(c.type), c.run, c.ns);
     fclose(o);
-    snprintf(path, sizeof(path), "%s\\runs.csv", f.dir);
+    snprintf(path, sizeof(path), "%s" PGL_PATH_SEP "runs.csv", f.dir);
     o = fopen(path, "w");
     if (o == nullptr)
         return;
@@ -346,7 +351,7 @@ void write_cmds_csv(const Frame &f)
 void write_summary(const Frame &f, const std::vector<const Draw *> &ord)
 {
     char path[MAX_PATH + 32];
-    snprintf(path, sizeof(path), "%s\\summary.txt", f.dir);
+    snprintf(path, sizeof(path), "%s" PGL_PATH_SEP "summary.txt", f.dir);
     FILE *o = fopen(path, "w");
     if (o == nullptr)
         return;

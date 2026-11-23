@@ -3335,7 +3335,7 @@ msgstr "WASAPI %.1f + %.1f MS"
 msgid "NONE (KS BUSY)"
 msgstr "なし（KS 使用中）"
 
-#: src/platform/audio.cpp src/platform/settings_menu.cpp
+#: src/platform/audio.cpp src/platform/settings_menu.cpp src/platform/sdl/audio_sdl.cpp
 msgid "NONE"
 msgstr "なし"
 

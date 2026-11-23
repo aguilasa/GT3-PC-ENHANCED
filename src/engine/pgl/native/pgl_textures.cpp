@@ -44,7 +44,7 @@
 #include <unordered_map>
 #include <vector>
 
-#include <windows.h>
+#include "engine/pgl/native/pgl_win32.h"
 
 #include "engine/pgl/native/gs_tex1.h"
 #include "engine/pgl/native/gs_tex_decode.h"

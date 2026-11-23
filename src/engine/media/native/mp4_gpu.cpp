@@ -1,5 +1,10 @@
-/* mp4_gpu.cpp - an MP4 movie decoded by the GPU (mp4_gpu.h). */
+/* mp4_gpu.cpp - an MP4 movie decoded by the GPU (mp4_gpu.h).
+ *
+ * Off Windows there is no Media Foundation and no texture shared between
+ * devices: open() always fails and an MP4 goes the CPU's way. */
 #include "engine/media/native/mp4_gpu.h"
+
+#ifdef _WIN32
 
 #include "engine/media/native/mp4_frames.h"         /* mp4_frame_time */
 #include "engine/media/native/mp4_movie.h"          /* MfScope */
@@ -543,3 +548,51 @@ bool Mp4GpuFrames::take(int index, Mp4GpuFrame *out)
 }
 
 } // namespace gt3media
+
+#else /* !_WIN32 */
+
+namespace gt3media {
+
+struct Mp4GpuFrames::Impl {
+};
+
+void mp4_gpu_keep_from(uint32_t)
+{
+}
+
+Mp4GpuFrames::Mp4GpuFrames() : impl_(new Impl)
+{
+}
+
+std::unique_ptr<Mp4GpuFrames> Mp4GpuFrames::open(const std::string &, int, bool)
+{
+    return nullptr;
+}
+
+Mp4GpuFrames::~Mp4GpuFrames()
+{
+}
+
+int Mp4GpuFrames::width() const
+{
+    return 0;
+}
+
+int Mp4GpuFrames::height() const
+{
+    return 0;
+}
+
+double Mp4GpuFrames::aspect() const
+{
+    return 0.0;
+}
+
+bool Mp4GpuFrames::take(int, Mp4GpuFrame *)
+{
+    return false;
+}
+
+} // namespace gt3media
+
+#endif /* _WIN32 */

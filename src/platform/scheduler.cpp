@@ -379,6 +379,9 @@ void *native_entry(void *p)
 {
     StartBox box = *(StartBox *)p;
     delete (StartBox *)p;
+#ifndef _WIN32
+    crash::prepare_thread();                /* (its own signal stack: a stack overflow is reported) */
+#endif
     set_game_fpu_mode();
     Thread *t = box.t;
     tl_self = t;

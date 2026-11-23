@@ -19,14 +19,30 @@
 #include <unordered_set>
 #include <vector>
 
-#include <windows.h>
+#include "engine/pgl/native/pgl_win32.h"
 #include <dxgi.h>
+#ifdef _WIN32
 #include <wincodec.h>
+#else
+/* off Windows: the files through platform/os/fs.h, a .png by png_image (the
+ * game's PNG code), a .jpg by stb_image */
+#include "platform/os/fs.h"
+#include "platform/png_image.h"
+#define STB_IMAGE_IMPLEMENTATION
+#define STB_IMAGE_STATIC
+#define STBI_ONLY_JPEG
+#define STBI_NO_STDIO
+#define STBI_NO_HDR
+#define STBI_NO_LINEAR
+#include "stb/stb_image.h"
+#endif
 
 #include "platform/log.h"
 #include "platform/settings.h"
 
+#ifdef _WIN32
 #pragma comment(lib, "windowscodecs.lib")
+#endif
 
 namespace pglr {
 namespace texrepl {
@@ -117,6 +133,7 @@ bool name_hash(const wchar_t *name, uint64_t *hash)
 /* Files                                                                    */
 /* ======================================================================== */
 
+#ifdef _WIN32
 std::wstring widen(const char *ansi)
 {
     const int n = MultiByteToWideChar(CP_ACP, 0, ansi, -1, nullptr, 0);
@@ -195,6 +212,80 @@ bool write_file(const std::wstring &path, const void *head, size_t headBytes, co
     return ok;
 }
 
+#else /* !_WIN32 */
+
+std::wstring widen(const char *ansi)
+{
+    return fs::widen(ansi);                 /* (the native text is UTF-8) */
+}
+
+std::string narrow(const std::wstring &w)
+{
+    return fs::narrow(w);
+}
+
+/* (the folders of a path ending in '\' or '/') */
+void make_folders(const std::wstring &path)
+{
+    for (size_t i = 1; i < path.size(); i++)
+        if (path[i] == L'\\' || path[i] == L'/')
+            fs::make_dir(fs::narrow(path.substr(0, i)));
+}
+
+bool read_file(const std::wstring &path, std::vector<uint8_t> &out, size_t most = (size_t)-1)
+{
+    fs::File f;
+    if (!f.open(fs::narrow(path), fs::kRead, fs::Create::open_existing))
+        return false;
+    const int64_t size = f.size();
+    bool ok = size >= 0 && size < (512ll << 20);
+    if (ok) {
+        const size_t n = std::min<size_t>((size_t)size, most);
+        out.resize(n);
+        size_t at = 0;
+        while (ok && at < n) {
+            const int got = f.read_at(at, out.data() + at, (uint32_t)std::min<size_t>(n - at, 16u << 20));
+            ok = got > 0;
+            if (ok)
+                at += (size_t)got;
+        }
+    }
+    return ok;
+}
+
+/* Whole or not there: written beside the place, then moved onto it. */
+bool write_file(const std::wstring &path, const void *head, size_t headBytes, const void *data, size_t bytes)
+{
+    char tmp[32];
+    snprintf(tmp, sizeof(tmp), ".%lu.tmp", (unsigned long)GetCurrentThreadId());
+    const std::string to = fs::narrow(path), part = to + tmp;
+    bool ok;
+    {
+        fs::File f;
+        if (!f.open(part, fs::kWrite, fs::Create::create_always))
+            return false;
+        ok = true;
+        const void *parts[2] = {head, data};
+        const size_t sizes[2] = {headBytes, bytes};
+        for (int p = 0; p < 2 && ok; p++) {
+            size_t at = 0;
+            while (ok && at < sizes[p]) {
+                const int put = f.write((const uint8_t *)parts[p] + at, (uint32_t)std::min<size_t>(sizes[p] - at, 16u << 20));
+                ok = put > 0;
+                if (ok)
+                    at += (size_t)put;
+            }
+        }
+    }
+    if (ok)
+        ok = fs::rename_replace(part, to);
+    if (!ok)
+        fs::remove_file(part);
+    return ok;
+}
+
+#endif /* _WIN32 */
+
 double now_seconds()
 {
     static LARGE_INTEGER freq;
@@ -244,6 +335,7 @@ struct Image {
 
 constexpr uint32_t kMaxSide = 8192;
 
+#ifdef _WIN32
 /* (a worker's: COM is its own) */
 IWICImagingFactory *wic()
 {
@@ -331,6 +423,58 @@ bool png_write(const std::wstring &path, const uint32_t *px, uint32_t w, uint32_
         DeleteFileW(part.c_str());
     return ok;
 }
+
+#else /* !_WIN32 */
+
+/* A .png (png_image) or a .jpg (stb_image) file. */
+bool wic_decode(const std::wstring &path, Image &out)
+{
+    std::vector<uint8_t> file;
+    if (!read_file(path, file) || file.empty())
+        return false;
+    int w = 0, h = 0;
+    std::vector<uint8_t> px;
+    static const uint8_t kPngSig[8] = {0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A};
+    if (file.size() >= 8 && memcmp(file.data(), kPngSig, 8) == 0) {
+        if (!png_image::decode(file.data(), file.size(), &px, &w, &h))
+            return false;
+    } else {
+        int comp = 0;
+        if (file.size() > (size_t)INT32_MAX)
+            return false;
+        uint8_t *p = stbi_load_from_memory(file.data(), (int)file.size(), &w, &h, &comp, 4);
+        if (p == nullptr)
+            return false;
+        px.assign(p, p + (size_t)w * h * 4);
+        stbi_image_free(p);
+    }
+    if (w <= 0 || h <= 0 || (uint32_t)w > kMaxSide || (uint32_t)h > kMaxSide)
+        return false;
+    flight_take((size_t)w * h * 10);        /* (its pixels, its levels twice over, its loaded form) */
+    out.w = (uint32_t)w;
+    out.h = (uint32_t)h;
+    out.px.swap(px);
+    return true;
+}
+
+/* w x h texels (the GS's alpha) as a PNG with the usual alpha: min(2 a,
+ * 255). */
+bool png_write(const std::wstring &path, const uint32_t *px, uint32_t w, uint32_t h)
+{
+    std::vector<uint8_t> rgba((size_t)w * h * 4);
+    for (size_t i = 0; i < (size_t)w * h; i++) {
+        const uint32_t p = px[i];
+        const uint32_t a = p >> 24;
+        rgba[i * 4 + 0] = (uint8_t)p;
+        rgba[i * 4 + 1] = (uint8_t)(p >> 8);
+        rgba[i * 4 + 2] = (uint8_t)(p >> 16);
+        rgba[i * 4 + 3] = (uint8_t)(a >= 128 ? 255 : a * 2);
+    }
+    /* (written beside it and moved into place by png_image) */
+    return png_image::encode_file(path, rgba.data(), (int)w, (int)h, 1.0, true);
+}
+
+#endif /* _WIN32 */
 
 /* The next mip level: 2 x 2 texels averaged, each channel by itself.  (Not
  * weighted by the alpha, and no colour given to texels of alpha 0: in this
@@ -1125,6 +1269,7 @@ bool make_device_texture(const Blob &b, Com<ID3D11Texture2D> &tex, Com<ID3D11Sha
 
 /* ---- the folders' list ---------------------------------------------------- */
 
+#ifdef _WIN32
 void list_folder(const std::wstring &folder, std::unordered_map<uint64_t, Source> &found, int depth)
 {
     WIN32_FIND_DATAW fd;
@@ -1183,6 +1328,96 @@ void list_hashes(const std::wstring &folder, std::unordered_set<uint64_t> &out)
     FindClose(h);
 }
 
+#else /* !_WIN32 */
+
+/* The kind of a replacement file by its extension (false: none). */
+bool source_kind(const std::wstring &name, Kind *kind)
+{
+    const size_t dot = name.rfind(L'.');
+    if (dot == std::wstring::npos)
+        return false;
+    std::wstring ext = name.substr(dot);
+    for (wchar_t &c : ext)
+        c = (wchar_t)towlower(c);
+    if (ext == L".dds")
+        *kind = kDds;
+    else if (ext == L".png")
+        *kind = kPng;
+    else if (ext == L".jpg" || ext == L".jpeg")
+        *kind = kJpg;
+    else
+        return false;
+    return true;
+}
+
+/* (the entries are found as the system lists them; symbolic links followed,
+ * 64 folders deep at most, as on Windows) */
+void list_folder(const std::wstring &folder, std::unordered_map<uint64_t, Source> &found, int depth)
+{
+    std::vector<fs::Entry> entries;
+    if (!fs::list(fs::narrow(folder), &entries))
+        return;
+    std::vector<std::wstring> under;
+    for (const fs::Entry &e : entries) {
+        const std::wstring name = fs::widen(e.name);
+        if (e.st.dir) {
+            if (depth < 64)
+                under.push_back(folder + L"/" + name);
+            continue;
+        }
+        uint64_t hash;
+        if (!name_hash(name.c_str(), &hash))
+            continue;
+        Kind kind;
+        if (!source_kind(name, &kind))
+            continue;
+        Source &s = found[hash];
+        if (!s.path.empty() && s.kind <= kind)
+            continue;                       /* (a .dds before a .png before a .jpg of the same texture) */
+        s.path = folder + L"/" + name;
+        s.kind = kind;
+        s.size = e.st.size;
+        s.time = (uint64_t)e.st.modify;
+    }
+    for (const std::wstring &u : under)
+        list_folder(u, found, depth + 1);
+}
+
+/* The names in folder (ending in a separator) that end in ext, without
+ * case. */
+std::vector<std::wstring> names_ending(const std::wstring &folder, const wchar_t *ext)
+{
+    std::vector<std::wstring> out;
+    std::vector<fs::Entry> entries;
+    if (!fs::list(fs::narrow(folder), &entries))
+        return out;
+    const size_t n = wcslen(ext);
+    for (const fs::Entry &e : entries) {
+        if (e.st.dir)
+            continue;
+        std::wstring name = fs::widen(e.name);
+        if (name.size() < n)
+            continue;
+        bool match = true;
+        for (size_t k = 0; k < n && match; k++)
+            match = towlower(name[name.size() - n + k]) == towlower(ext[k]);
+        if (match)
+            out.push_back(std::move(name));
+    }
+    return out;
+}
+
+void list_hashes(const std::wstring &folder, std::unordered_set<uint64_t> &out)
+{
+    for (const std::wstring &name : names_ending(folder, L".png")) {
+        uint64_t hash;
+        if (name_hash(name.c_str(), &hash))
+            out.insert(hash);
+    }
+}
+
+#endif /* _WIN32 */
+
 /* The pre-cache made ahead: a job for every listed file not looked at yet
  * (the lock held). */
 void queue_cache_jobs()
@@ -1235,6 +1470,7 @@ void job_index(bool refresh)
             want.insert(cache_path(e.first, e.second, true));
             want.insert(cache_path(e.first, e.second, false));
         }
+#ifdef _WIN32
         WIN32_FIND_DATAW fd;
         HANDLE h = FindFirstFileW((g->cache + L"*.gt3tex").c_str(), &fd);
         if (h != INVALID_HANDLE_VALUE) {
@@ -1245,6 +1481,13 @@ void job_index(bool refresh)
             } while (FindNextFileW(h, &fd));
             FindClose(h);
         }
+#else
+        for (const std::wstring &name : names_ending(g->cache, L".gt3tex")) {
+            const std::wstring p = g->cache + name;
+            if (want.count(p) == 0 && fs::remove_file(fs::narrow(p)))
+                stale++;
+        }
+#endif
     }
     {
         Hold hold;
@@ -1328,7 +1571,11 @@ void job_cache(const Job &j)
     bool made = false;
     if (g_precache.load()) {
         const std::wstring cp = cache_path(j.hash, j.src, compress);
+#ifdef _WIN32
         bool need = GetFileAttributesW(cp.c_str()) == INVALID_FILE_ATTRIBUTES;
+#else
+        bool need = !fs::exists(fs::narrow(cp));
+#endif
         if (need && j.src.kind == kDds) {
             std::vector<uint8_t> head;
             need = false;

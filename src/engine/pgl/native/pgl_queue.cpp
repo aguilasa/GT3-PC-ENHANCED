@@ -16,8 +16,8 @@
 #include <cstdlib>
 #include <unordered_set>
 
-#include <intrin.h>
-#include <windows.h>
+#include "engine/pgl/native/pgl_intrin.h"
+#include "engine/pgl/native/pgl_win32.h"
 #include <unknwn.h>
 
 #include "platform/crash.h"
