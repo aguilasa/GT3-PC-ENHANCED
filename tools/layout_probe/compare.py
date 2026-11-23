@@ -11,9 +11,12 @@ appears on both sides: sizeof, alignment, and the offset of every base,
 member and bitfield (bit range included), members of anonymous structs and
 unions too.  Members named pcTail_* (PC_TAIL_PAD in include/types.h, Linux
 only, filling the tail padding a GCC / Clang derived class would reuse) are
-skipped; records of std::, of the compiler / CRT (names starting with _)
-and lambdas of system headers are not compared (each side has its own
-standard library); the records found on one side only are listed.
+skipped; records of std:: and lambdas of system headers are not compared
+(each side has its own standard library).  Records whose names start with _
+are compared when both sides have them (the product's own: PS2 SDK structs,
+the decompiled runtime); the compiler's and the CRT's are each on one side
+only.  The records found on one side only are listed, those with a leading _
+counted.
 
 A record that differs fails the run unless it is in EXCEPTIONS below; each
 exception says why the difference is harmless (C++ ABI of a polymorphic class,
@@ -260,10 +263,15 @@ def unit_of(dump_file):
 
 
 def skip(name):
-    """Records of the standard library, the CRT or the compiler (names with a
-    leading _, lambdas of system headers): each side has its own."""
-    head = name.split("::")[0]
-    return name.startswith("std::") or head.startswith("_") or name.startswith("(lambda at /")
+    """Records of the standard library and lambdas of system headers: each
+    side has its own.  Names with a leading _ are kept: the product defines
+    some (include/sif.h, the decompiled runtime); the compiler's and the
+    CRT's are on one side only and so never compared."""
+    return name.startswith("std::") or name.startswith("(lambda at /")
+
+
+def underscored(name):
+    return name.split("::")[0].startswith("_")
 
 
 def load(d):
@@ -381,9 +389,15 @@ def main():
     nanon = sum(1 for n in common if any(len(p) > 1 for lay in l[n] for _, _, p in lay[2]))
     say(f"  of the compared: {nbits} with bitfields (bit ranges compared), "
         f"{nanon} with anonymous struct/union members (compared inside)")
+    under = [n for n in common if underscored(n)]
+    say(f"  of the compared: {len(under)} with a leading _ (on both sides, so the product's): "
+        + (", ".join(under) or "-"))
     for side, mine, other in (("win", w, l), ("linux", l, w)):
         only = sorted(set(mine) - set(other))
-        say(f"only in {side} ({len(only)}, not compared): " + (", ".join(only) or "-"))
+        named = [n for n in only if not underscored(n)]
+        say(f"only in {side} ({len(only)}, not compared): " + (", ".join(named) or "-")
+            + (f"; and {len(only) - len(named)} with a leading _ (the compiler's / CRT's)"
+               if len(only) > len(named) else ""))
     say()
     say("Accepted exceptions (reviewed, see EXCEPTIONS in tools/layout_probe/compare.py):")
     for n in hit:
