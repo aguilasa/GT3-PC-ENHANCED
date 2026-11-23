@@ -3,6 +3,10 @@
 #include "platform/ui_text.h"                  /* PC (2026-11-16): the interface's languages */
 
 #include "platform/os/win_compat.h"
+#ifndef _WIN32
+#include "platform/window.h"                    /* the keys' SDL scancodes */
+#include <SDL3/SDL_keyboard.h>
+#endif
 
 #include <atomic>
 #include <ctype.h>
@@ -670,6 +674,22 @@ static void describe_input(const Binding &b, char *out, size_t n)
             snprintf(out, n, "%s", tr(kMouseLabels[m]));
             return;
         }
+#ifndef _WIN32
+        /* the key's name in the keyboard's layout, SDL's (a letter's and a
+         * digit's their own: the virtual key is the layout's already) */
+        if (!((b.index >= 'A' && b.index <= 'Z') || (b.index >= '0' && b.index <= '9'))) {
+            const SDL_Scancode sc = (SDL_Scancode)window::sdl_scancode(b.index);
+            const SDL_Keycode kc =
+                sc != SDL_SCANCODE_UNKNOWN ? SDL_GetKeyFromScancode(sc, SDL_KMOD_NUM, false) : SDLK_UNKNOWN;
+            const char *name = kc != SDLK_UNKNOWN ? SDL_GetKeyName(kc) : "";
+            if (name[0] != '\0') {
+                snprintf(out, n, "%s", name);
+                return;
+            }
+        }
+        key_name(b.index, out, n);
+        return;
+#else
         /* the key's name in the keyboard's layout (extended keys: bit 24) */
         const UINT vk = b.index;
         const UINT sc = MapVirtualKeyW(vk, MAPVK_VK_TO_VSC);
@@ -687,6 +707,7 @@ static void describe_input(const Binding &b, char *out, size_t n)
             return;
         key_name(b.index, out, n);
         return;
+#endif
     }
     case Source::mouse_wheel:
         snprintf(out, n, "%s", b.dir > 0 ? tr("Mouse wheel up") : tr("Mouse wheel down"));

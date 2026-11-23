@@ -1,3 +1,5 @@
 * text=auto
 # batch files with CRLF on every checkout (cmd misreads labels in LF files)
 *.cmd text eol=crlf
+# gt3pc.ini as the Windows build wrote it (CRLF kept: the POSIX reader's test)
+tools/platform_tests/window_test_win.ini -text

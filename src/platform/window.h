@@ -12,15 +12,27 @@
  * settings say windowed); the settings menu's SCREEN MODE sets the mode of
  * the settings and switches to it.  The window thread
  * only records that request: the swap chain belongs to the game thread, so
- * the GPU module applies it (take_mode_request, apply_mode). */
+ * the GPU module applies it (take_mode_request, apply_mode).
+ *
+ * Off Windows the window is SDL3's (platform/sdl/window_sdl.cpp), with the
+ * same calls: its keys translated to the Windows virtual keys (what
+ * gt3pc.ini stores), exclusive fullscreen by the display mode SDL sets, and
+ * the calls of other threads run on the window's (SDL's main thread). */
 #pragma once
 
 #include <stdint.h>
 
 #include "platform/settings.h"
 
+#ifdef _WIN32
 struct HWND__;
 typedef HWND__ *HWND;
+#else
+/* Off Windows the window is SDL3's (platform/sdl/window_sdl.cpp) and HWND
+ * its opaque handle, the SDL_Window *: the same type DXVK-native's
+ * windows_base.h gives HWND, so both headers can be included together. */
+typedef void *HWND;
+#endif
 
 namespace window {
 
@@ -83,5 +95,12 @@ void set_full_monitor(void *monitor);
 /* Gives the game window the focus again (a screen window's exclusive
  * fullscreen took it). */
 void activate();
+
+#ifndef _WIN32
+/* Off Windows: the SDL scancode (SDL_Scancode) of virtual key vk, the key
+ * at that place of a US keyboard (0: none; the mouse's buttons have none).
+ * The keys' names in the keyboard's layout (input_map::describe). */
+int sdl_scancode(int vk);
+#endif
 
 } // namespace window

@@ -114,5 +114,30 @@ add_test(NAME arena COMMAND arena_test)
 add_test(NAME arena_env COMMAND arena_test 1024)
 set_tests_properties(arena_env PROPERTIES ENVIRONMENT GT3PC_HEAP_MB=1024)
 
+# The game window on SDL3 (src/platform/sdl/window_sdl.cpp): its keys as the
+# Windows virtual keys, the hotkeys, the mouse, the keys' names (SDL's) and
+# the Windows build's gt3pc.ini (window_test_win.ini, written by
+# win_ini_probe.cpp) read the same - SDL's dummy video driver, no display.
+# The same program opens a real window for keys injected from outside
+# (`window_test keys <ini> <seconds> --expect ..', xdotool) and for the
+# display modes (`window_test modes [WxH]'); those need a display and are
+# not run by ctest.
+if(SDL3_FOUND)
+    add_executable(window_test window_test.cpp ${GT3PC_ROOT}/src/platform/sdl/window_sdl.cpp
+        ${GT3PC_ROOT}/src/platform/input_map.cpp ${GT3PC_ROOT}/src/platform/ui_text.cpp
+        ${GT3PC_ROOT}/src/platform/os/ini_posix.cpp ${GT3PC_ROOT}/src/platform/png_image.cpp
+        ${GT3PC_ROOT}/src/platform/os/fs_posix.cpp)
+    target_include_directories(window_test PRIVATE ${GT3PC_ROOT}/src)
+    target_compile_options(window_test PRIVATE -Wall -Wextra)
+    set_source_files_properties(${GT3PC_ROOT}/src/platform/sdl/window_sdl.cpp PROPERTIES
+        COMPILE_DEFINITIONS GT3PC_WINDOW_ICON="${GT3PC_ROOT}/gt3pc.ico"
+        OBJECT_DEPENDS ${GT3PC_ROOT}/gt3pc.ico)
+    target_link_libraries(window_test PRIVATE SDL3::SDL3 gt3_lodepng Threads::Threads)
+    add_test(NAME window_map COMMAND window_test map ${CMAKE_CURRENT_SOURCE_DIR}/window_test_win.ini)
+    set_tests_properties(window_map PROPERTIES ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;TMPDIR=${CMAKE_CURRENT_BINARY_DIR}")
+else()
+    message(STATUS "window_test: no SDL3; not built")
+endif()
+
 # The game-thread scheduler and the FPU mode (sched/, also buildable alone).
 add_subdirectory(sched)

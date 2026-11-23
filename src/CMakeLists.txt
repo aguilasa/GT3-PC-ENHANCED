@@ -140,9 +140,9 @@ target_compile_definitions(gt3_engine PRIVATE GT3_PC=1)
 
 if(NOT MSVC)
     # GCC / Clang: the decompiled code (gnu++17) and the platform layer's
-    # files that are ported; the window, the input devices, the sound output,
-    # Direct3D (the renderer and the panels drawn with it), the movies and
-    # the executables are still Windows-only.
+    # files that are ported (the window on SDL3); the controllers, the sound
+    # output, Direct3D (the renderer and the panels drawn with it), the movies
+    # and the executables are still Windows-only.
     set_target_properties(gt3_game gt3_engine PROPERTIES CXX_EXTENSIONS ON)
     # The interface's languages: tools/lang_sync and the catalogues' generated
     # source (cmake/languages.cmake), built already.
@@ -202,12 +202,18 @@ if(NOT MSVC)
         platform/play_time.cpp
         platform/png_image.cpp
         platform/ui_text.cpp
+        # the game window, its keyboard and mouse (SDL3; the icon gt3pc.ico
+        # built in, as the Windows resource has it)
+        platform/sdl/window_sdl.cpp
     )
+    set_source_files_properties(platform/sdl/window_sdl.cpp PROPERTIES
+        COMPILE_DEFINITIONS GT3PC_WINDOW_ICON="${GT3PC_ROOT}/gt3pc.ico"
+        OBJECT_DEPENDS ${GT3PC_ROOT}/gt3pc.ico)
     target_include_directories(gt3_platform PUBLIC ${GT3PC_ROOT}/include ${GT3PC_ROOT}/src)
     target_compile_options(gt3_platform PRIVATE ${GT3_PLATFORM_FLOAT_OPTIONS})
     set_target_properties(gt3_platform PROPERTIES CXX_EXTENSIONS ON)
-    # SDL3 (the locale, the message box; the controllers and the window
-    # later): a system package, else the i686 build in ~/opt/i386
+    # SDL3 (the locale, the message box, the window; the controllers later):
+    # a system package, else the i686 build in ~/opt/i386
     find_package(SDL3 CONFIG QUIET)
     if(NOT SDL3_FOUND)
         find_package(SDL3 CONFIG REQUIRED PATHS $ENV{HOME}/opt/i386 NO_DEFAULT_PATH)
