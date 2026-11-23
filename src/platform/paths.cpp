@@ -3,8 +3,8 @@
 #include "platform/disc_image.h"
 #include "platform/log.h"
 #include "platform/save_folders.h"             /* PC (2026-11-15) */
-
-#include <windows.h>
+#include "platform/os/fs.h"
+#include "platform/os/win_compat.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -25,51 +25,60 @@ std::vector<std::pair<std::string, std::string>> g_marker;     /* the install ma
  * description, has spaces too: its "key" is just never asked for). */
 void read_marker(const std::string &path)
 {
-    FILE *f = fopen(path.c_str(), "rb");
-    if (f == nullptr)
+    std::string text;
+    if (!fs::read_file(fs::native_to_utf8(path), &text))
         return;
-    char line[1024];
-    while (fgets(line, sizeof(line), f) != nullptr) {
-        size_t n = strlen(line);
-        while (n > 0 && (line[n - 1] == '\n' || line[n - 1] == '\r' || line[n - 1] == ' '))
-            line[--n] = 0;
-        const char *space = strchr(line, ' ');
-        if (space == nullptr || space == line)
+    size_t at = 0;
+    while (at < text.size()) {
+        /* (a line as fgets gave it: up to its '\n', at most 1023 bytes) */
+        size_t end = text.find('\n', at);
+        end = end == std::string::npos ? text.size() : end + 1;
+        if (end - at > 1023)
+            end = at + 1023;
+        std::string line = text.substr(at, end - at);
+        at = end;
+        line = line.substr(0, line.find('\0'));
+        while (!line.empty() && (line.back() == '\n' || line.back() == '\r' || line.back() == ' '))
+            line.pop_back();
+        const size_t space = line.find(' ');
+        if (space == std::string::npos || space == 0)
             continue;
-        g_marker.emplace_back(std::string(line, space - line), std::string(space + 1));
+        g_marker.emplace_back(line.substr(0, space), line.substr(space + 1));
     }
-    fclose(f);
 }
 
 bool file_exists(const std::string &p)
 {
-    DWORD a = GetFileAttributesA(p.c_str());
-    return a != INVALID_FILE_ATTRIBUTES && !(a & FILE_ATTRIBUTE_DIRECTORY);
+    return fs::is_file(fs::native_to_utf8(p));
 }
 
 std::string with_slash(std::string s)
 {
     if (!s.empty() && s.back() != '\\' && s.back() != '/')
-        s += '\\';
+        s += fs::kSep;
     return s;
 }
 
+/* (the native text: fs.h) */
 std::string full_path(const std::string &p)
 {
-    char buf[MAX_PATH * 2];
-    DWORD n = GetFullPathNameA(p.c_str(), sizeof(buf), buf, nullptr);
-    return n ? std::string(buf, n) : p;
+    return fs::utf8_to_native(fs::full_path(fs::native_to_utf8(p)));
+}
+
+/* A folder's name with its separator. */
+std::string folder(const std::string &name)
+{
+    return name + fs::kSep;
 }
 
 } // namespace
 
 bool init(int argc, char **argv)
 {
-    char exe[MAX_PATH * 2];
-    GetModuleFileNameA(nullptr, exe, sizeof(exe));
-    char *slash = strrchr(exe, '\\');
-    if (slash)
-        slash[1] = 0;
+    std::string exe = fs::utf8_to_native(fs::exe_path());
+    const size_t slash = exe.find_last_of(fs::kSep);
+    if (slash != std::string::npos)
+        exe.resize(slash + 1);
     g_gameDir = exe;
 
     /* PC (2026-11-14): the settings file - another launcher's with --shared
@@ -90,7 +99,7 @@ bool init(int argc, char **argv)
     g_savesDir = save_folders::to_ansi(
         save_folders::saves_dir(save_folders::from_ansi(iniDir), save_folders::from_ansi(g_gameDir)));
     /* PC (2026-11-15): the screenshots, beside it too (platform/screenshot.h) */
-    g_screenshotsDir = iniDir + kScreenshotsFolder + "\\";
+    g_screenshotsDir = iniDir + folder(kScreenshotsFolder);
 
     /* the data folders tried, each a folder with the marker: --data's (the
      * data folder, or a folder holding data\), the [Game] Version's
@@ -100,26 +109,27 @@ bool init(int argc, char **argv)
     for (int i = 1; i + 1 < argc; i++)
         if (strcmp(argv[i], "--data") == 0) {
             candidates.push_back(with_slash(argv[i + 1]));
-            candidates.push_back(with_slash(argv[i + 1]) + kDataFolder + "\\");
+            candidates.push_back(with_slash(argv[i + 1]) + folder(kDataFolder));
         }
     /* PC (2026-11-14): the disc image last played from the launcher (its
      * folder in discs\) */
     char disc[128] = "";
     GetPrivateProfileStringA("Game", "Disc", "", disc, sizeof(disc), g_engineIni.c_str());
     if (disc[0] != 0 && strpbrk(disc, "\\/:") == nullptr)
-        candidates.push_back(g_gameDir + kDiscsFolder + "\\" + disc + "\\");
+        candidates.push_back(g_gameDir + folder(kDiscsFolder) + folder(disc));
     char version[16] = "";
     GetPrivateProfileStringA("Game", "Version", "", version, sizeof(version), g_engineIni.c_str());
     if (version[0] != 0)
-        candidates.push_back(g_gameDir + kDataFolder + "_" + version + "\\");
+        candidates.push_back(g_gameDir + kDataFolder + "_" + folder(version));
     for (const char *v : {"US", "EU", "JP"})
-        candidates.push_back(g_gameDir + kDataFolder + "_" + v + "\\");
-    candidates.push_back(g_gameDir + kDataFolder + "\\");
-    candidates.push_back(with_slash(full_path(g_gameDir + "..\\..\\gt3_disc\\files\\data")));
+        candidates.push_back(g_gameDir + kDataFolder + "_" + folder(v));
+    candidates.push_back(g_gameDir + folder(kDataFolder));
+    candidates.push_back(with_slash(full_path(g_gameDir + folder("..") + folder("..") + folder("gt3_disc") +
+                                              folder("files") + kDataFolder)));
     for (const std::string &c : candidates)
         if (file_exists(c + kInstallMarker)) {
             g_dataFolder = with_slash(full_path(c));
-            g_dataDir = g_dataFolder.substr(0, g_dataFolder.find_last_of('\\', g_dataFolder.size() - 2) + 1);
+            g_dataDir = g_dataFolder.substr(0, g_dataFolder.find_last_of(fs::kSep, g_dataFolder.size() - 2) + 1);
             pclog::write("data: %s", g_dataFolder.c_str());
             read_marker(g_dataFolder + kInstallMarker);
             const std::string release = install_info("release");
@@ -140,8 +150,8 @@ bool init(int argc, char **argv)
             }
             return true;
         }
-    pclog::write("data: no installed game files (%s\\%s_US, _EU, _JP with %s) in %s (run the launcher to install "
-                 "them)", g_gameDir.c_str(), kDataFolder, kInstallMarker, g_gameDir.c_str());
+    pclog::write("data: no installed game files (%s%c%s_US, _EU, _JP with %s) in %s (run the launcher to install "
+                 "them)", g_gameDir.c_str(), fs::kSep, kDataFolder, kInstallMarker, g_gameDir.c_str());
     return false;
 }
 

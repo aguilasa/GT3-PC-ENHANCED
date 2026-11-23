@@ -148,6 +148,8 @@ endif()
 
 # ---- the platform layer -------------------------------------------------------
 add_library(gt3_platform STATIC
+    # the files and folders (UTF-8 paths) through the Win32 calls
+    platform/os/fs_win.cpp
     platform/log.cpp
     platform/pc_libc.cpp
     platform/paths.cpp

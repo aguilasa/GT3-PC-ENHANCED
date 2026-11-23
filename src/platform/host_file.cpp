@@ -4,8 +4,8 @@
 #include "platform/log.h"
 #include "platform/paths.h"
 #include "platform/settings.h"
-
-#include <windows.h>
+#include "platform/os/fs.h"
+#include "platform/os/win_compat.h"
 
 #include <ctype.h>
 #include <stdio.h>
@@ -26,7 +26,7 @@ namespace {
  * at its first read (a probe - io_getstat opens a file for its size - costs
  * nothing). */
 struct HostFile {
-    HANDLE h = INVALID_HANDLE_VALUE;
+    fs::File file;
     const disc_image::File *disc = nullptr;
     std::shared_ptr<const std::vector<uint8_t>> unpacked;
 };
@@ -38,7 +38,7 @@ std::mutex g_mutex;
 thread_local bool t_quiet;                  /* host_file_quiet */
 thread_local unsigned t_held;               /* host_file_held */
 
-/* The path in the data folder (its own separators) */
+/* The path in the data folder ('\' its separators) */
 std::string relative_path(const char *path)
 {
     std::string p = path;
@@ -54,14 +54,30 @@ std::string relative_path(const char *path)
     return p;
 }
 
+/* rel with the system's separators (fs.h kSep). */
+std::string system_separators(std::string rel)
+{
+    if (fs::kSep != '\\')
+        for (char &c : rel)
+            if (c == '\\')
+                c = fs::kSep;
+    return rel;
+}
+
 /* "data\..." names the data folder (data_US\ ..., platform/paths.h), any
- * other host path the folder holding it. */
+ * other host path the folder holding it (the native text: fs.h). */
 std::string host_path(const char *path)
 {
     const std::string rel = relative_path(path);
     if (_strnicmp(rel.c_str(), "data", 4) == 0 && (rel.size() == 4 || rel[4] == '\\'))
-        return paths::data_folder() + (rel.size() > 5 ? rel.substr(5) : std::string());
-    return paths::data_dir() + rel;
+        return paths::data_folder() + system_separators(rel.size() > 5 ? rel.substr(5) : std::string());
+    return paths::data_dir() + system_separators(rel);
+}
+
+/* The same as the file layer takes it (UTF-8). */
+std::string host_path_utf8(const char *path)
+{
+    return fs::native_to_utf8(host_path(path));
 }
 
 bool file_log()
@@ -83,13 +99,13 @@ constexpr int kTocMaxDepth = 256;
  * added: listed in the volume (host_file_toc) and opened as any.  Read once,
  * at the first file the game asks for. */
 struct ModFile {
-    std::wstring full;              /* its Windows path */
+    std::string full;               /* its path (UTF-8) */
     std::string rel;                /* its path in the data folder, the folder's case ("cars\day\x") */
     uint32_t size = 0;
     int mod = 0;                    /* its folder (g_modFolders) */
 };
 std::once_flag g_modsOnce;
-std::vector<std::wstring> g_modFolders;
+std::vector<std::string> g_modFolders;     /* (UTF-8) */
 std::unordered_map<std::string, ModFile> g_modFiles;    /* by the lower-case rel */
 
 std::string lower(std::string s)
@@ -99,112 +115,115 @@ std::string lower(std::string s)
     return s;
 }
 
-std::wstring widen(const std::string &s)
+/* A UTF-8 name in the ANSI code page (the game's paths are; fs.h native);
+ * false when a character has none there. */
+bool narrow(const std::string &utf8, std::string *out)
 {
-    if (s.empty())
-        return std::wstring();
-    const int n = MultiByteToWideChar(CP_ACP, 0, s.c_str(), (int)s.size(), nullptr, 0);
-    std::wstring w((size_t)n, L'\0');
-    MultiByteToWideChar(CP_ACP, 0, s.c_str(), (int)s.size(), &w[0], n);
-    return w;
+    bool exact = false;
+    *out = fs::utf8_to_native(utf8, &exact);
+    return exact;
 }
 
-/* w in the ANSI code page; false when a character has none there. */
-bool narrow(const std::wstring &w, std::string *out)
+/* A path given whole, outside the data folder (host_file.h): Windows' with
+ * a drive or a server; POSIX's from the root, but for "/data/...". */
+bool outside_path(const char *p)
 {
-    out->clear();
-    if (w.empty())
-        return true;
-    BOOL lossy = FALSE;
-    const int n = WideCharToMultiByte(CP_ACP, WC_NO_BEST_FIT_CHARS, w.c_str(), (int)w.size(), nullptr, 0, nullptr, &lossy);
-    if (n <= 0 || lossy)
-        return false;
-    out->resize((size_t)n);
-    WideCharToMultiByte(CP_ACP, WC_NO_BEST_FIT_CHARS, w.c_str(), (int)w.size(), &(*out)[0], n, nullptr, &lossy);
-    return !lossy;
-}
-
-/* A Windows path given whole, not a path of the data folder (host_file.h). */
-bool system_path(const char *p)
-{
+#ifdef _WIN32
     return (p[0] == '\\' && p[1] == '\\') ||
            (isalpha((unsigned char)p[0]) && p[1] == ':' && (p[2] == '\\' || p[2] == '/'));
+#else
+    if (p[0] != '/')
+        return false;
+    const std::string rel = relative_path(p);
+    return !(_strnicmp(rel.c_str(), "data", 4) == 0 && (rel.size() == 4 || rel[4] == '\\'));
+#endif
 }
 
-/* Its UTF-16: UTF-8, else the ANSI code page's bytes. */
-std::wstring system_wide(const char *p)
+/* Its UTF-8: as it is, else (typed by hand) the ANSI code page's bytes. */
+std::string outside_utf8(const char *p)
 {
-    const int n = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, p, -1, nullptr, 0);
-    if (n <= 0)
-        return widen(p);
-    std::wstring w((size_t)n - 1, L'\0');
-    MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, p, -1, &w[0], n);
-    return w;
+    return fs::utf8_or_native(p);
 }
 
-/* The files of mod folder `mod' under `folder' (rel: their path so far). */
-void mod_scan(int mod, const std::wstring &folder, const std::string &rel, int depth, uint32_t *files, uint32_t *skipped)
+/* The files of mod folder `mod' under `folder' (UTF-8; rel: their path so
+ * far). */
+void mod_scan(int mod, const std::string &folder, const std::string &rel, int depth, uint32_t *files, uint32_t *skipped)
 {
     if (depth > kTocMaxDepth)
         return;
-    WIN32_FIND_DATAW fd;
-    HANDLE f = FindFirstFileExW((folder + L"\\*").c_str(), FindExInfoBasic, &fd, FindExSearchNameMatch, nullptr,
-                                FIND_FIRST_EX_LARGE_FETCH);
-    if (f == INVALID_HANDLE_VALUE)
+    std::vector<fs::Entry> entries;
+    if (!fs::list(folder, &entries))
         return;
-    do {
-        const std::wstring wname = fd.cFileName;
-        if (wname == L"." || wname == L".." || (fd.dwFileAttributes & (FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM)))
+    for (const fs::Entry &e : entries) {
+        if (e.st.hidden)
             continue;
         std::string name;
-        if (!narrow(wname, &name)) {
+        if (!narrow(e.name, &name)) {
             (*skipped)++;                   /* (the game's paths are the ANSI code page's) */
             continue;
         }
         const std::string r = rel.empty() ? name : rel + "\\" + name;
-        if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
-            mod_scan(mod, folder + L"\\" + wname, r, depth + 1, files, skipped);
+        const std::string full = folder + fs::kSep + e.name;
+        if (e.st.dir) {
+            mod_scan(mod, full, r, depth + 1, files, skipped);
             continue;
         }
         /* (the folder's own card in the launcher's Mods window, no game file) */
-        if (rel.empty() && (_wcsicmp(wname.c_str(), L"mod.txt") == 0 || _wcsicmp(wname.c_str(), L"mod.png") == 0))
+        if (rel.empty() && (_stricmp(e.name.c_str(), "mod.txt") == 0 || _stricmp(e.name.c_str(), "mod.png") == 0))
             continue;
         const std::string key = lower(r);
         if (g_modFiles.count(key) != 0)
             continue;                       /* (a folder before this one has it) */
         ModFile m;
-        m.full = folder + L"\\" + wname;
+        m.full = full;
         m.rel = r;
-        m.size = fd.nFileSizeHigh ? 0xFFFFFFFFu : fd.nFileSizeLow;
+        m.size = e.st.size > 0xFFFFFFFFull ? 0xFFFFFFFFu : (uint32_t)e.st.size;
         m.mod = mod;
         g_modFiles.emplace(key, std::move(m));
         (*files)++;
-    } while (FindNextFileW(f, &fd));
-    FindClose(f);
+    }
+}
+
+/* gt3pc_engine.ini [Mods] key's value (UTF-8). */
+std::string mods_value(const char *key, const char *def)
+{
+#ifdef _WIN32
+    /* (the "W" calls: a folder's name in any script) */
+    const std::wstring ini = fs::widen(fs::native_to_utf8(paths::engine_ini_path()));
+    wchar_t v[1024] = L"";
+    GetPrivateProfileStringW(L"Mods", fs::widen(key).c_str(), fs::widen(def).c_str(), v, 1024, ini.c_str());
+    return fs::narrow(v);
+#else
+    char v[1024] = "";
+    GetPrivateProfileStringA("Mods", key, def, v, sizeof(v), paths::engine_ini_path().c_str());
+    return v;
+#endif
 }
 
 void mods_load()
 {
     /* PC (2026-11-14): the engine's own file (gt3pc_engine.ini; gt3pc.ini
      * until its launcher has moved them: paths.h) */
-    const std::wstring ini = widen(paths::engine_ini_path());
-    const int count = (int)GetPrivateProfileIntW(L"Mods", L"Count", 0, ini.c_str());
+#ifdef _WIN32
+    const int count = (int)GetPrivateProfileIntW(L"Mods", L"Count", 0,
+                                                 fs::widen(fs::native_to_utf8(paths::engine_ini_path())).c_str());
+#else
+    const int count = (int)GetPrivateProfileIntA("Mods", "Count", 0, paths::engine_ini_path().c_str());
+#endif
     for (int i = 1; i <= count && i <= 256; i++) {
-        wchar_t key[32], on[16] = L"", folder[1024] = L"";
-        swprintf(key, 32, L"Mod%dOn", i);
-        GetPrivateProfileStringW(L"Mods", key, L"on", on, 16, ini.c_str());
-        swprintf(key, 32, L"Mod%d", i);
-        GetPrivateProfileStringW(L"Mods", key, L"", folder, 1024, ini.c_str());
-        std::wstring f = folder;
-        while (!f.empty() && (f.back() == L'\\' || f.back() == L'/'))
+        char key[32];
+        snprintf(key, sizeof(key), "Mod%dOn", i);
+        const std::string on = mods_value(key, "on");
+        snprintf(key, sizeof(key), "Mod%d", i);
+        std::string f = mods_value(key, "");
+        while (!f.empty() && (f.back() == '\\' || f.back() == '/'))
             f.pop_back();
-        if (f.empty() || _wcsicmp(on, L"on") != 0)
+        if (f.empty() || _stricmp(on.c_str(), "on") != 0)
             continue;
-        const DWORD a = GetFileAttributesW(f.c_str());
         std::string shown;
         if (!narrow(f, &shown))
             shown = "a folder named outside the ANSI code page";
-        if (a == INVALID_FILE_ATTRIBUTES || !(a & FILE_ATTRIBUTE_DIRECTORY)) {
+        if (!fs::is_dir(f)) {
             pclog::write("mods: %s is not there: left out", shown.c_str());
             continue;
         }
@@ -246,26 +265,25 @@ bool mod_lookup(const char *path, const ModFile **m)
     return !(ends_with_gz(key) && g_modFiles.count(key.substr(0, key.size() - 3)) != 0);
 }
 
-int add(HANDLE h, const disc_image::File *disc = nullptr)
+int add(fs::File file, const disc_image::File *disc = nullptr)
 {
     std::lock_guard<std::mutex> lock(g_mutex);
     for (int i = 0; i < kFiles; i++)
         if (!g_used[i]) {
             g_used[i] = true;
             g_files[i] = HostFile();
-            g_files[i].h = h;
+            g_files[i].file = std::move(file);
             g_files[i].disc = disc;
             return i;
         }
-    if (h != INVALID_HANDLE_VALUE)
-        CloseHandle(h);
-    return -1;
+    return -1;                              /* (file closed) */
 }
 
-HANDLE get(int fd)
+/* fd's file of the disk (NULL: not open). */
+const fs::File *get(int fd)
 {
     std::lock_guard<std::mutex> lock(g_mutex);
-    return fd >= 0 && fd < kFiles && g_used[fd] ? g_files[fd].h : INVALID_HANDLE_VALUE;
+    return fd >= 0 && fd < kFiles && g_used[fd] && g_files[fd].file.is_open() ? &g_files[fd].file : nullptr;
 }
 
 /* fd's file of the disc image's volume (NULL: a file of the disk, or not
@@ -328,38 +346,36 @@ bool toc_list(const std::string &folder, TocNode *node, int depth, uint32_t *fil
                      kTocMaxDepth);
         return true;
     }
-    WIN32_FIND_DATAA fd;
-    HANDLE f = FindFirstFileExA((folder + "\\*").c_str(), FindExInfoBasic, &fd, FindExSearchNameMatch, nullptr,
-                                FIND_FIRST_EX_LARGE_FETCH);
-    if (f == INVALID_HANDLE_VALUE) {
+    std::vector<fs::Entry> entries;
+    if (!fs::list(fs::native_to_utf8(folder), &entries)) {
         if (depth == 0)
             return false;
         pclog::write("data: %s could not be listed (error %lu); its files are left out", folder.c_str(),
-                     (unsigned long)GetLastError());
+                     fs::last_error());
         return true;
     }
     bool ok = true;
-    do {
-        std::string name = fd.cFileName;
-        if (name == "." || name == ".." || (fd.dwFileAttributes & (FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM)) ||
-            ends_with_gz(name) || (depth == 0 && _stricmp(name.c_str(), paths::kInstallMarker) == 0))
+    for (const fs::Entry &e : entries) {
+        /* (the name in the ANSI code page, its best fit where it has none, as
+         * the "A" calls give it) */
+        const std::string name = fs::utf8_to_native(e.name);
+        if (e.st.hidden || ends_with_gz(name) || (depth == 0 && _stricmp(name.c_str(), paths::kInstallMarker) == 0))
             continue;
         TocNode child;
         child.name = name;
-        if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+        if (e.st.dir) {
             child.dir = true;
             (*folders)++;
-            if (!toc_list(folder + "\\" + name, &child, depth + 1, files, folders)) {
+            if (!toc_list(folder + fs::kSep + name, &child, depth + 1, files, folders)) {
                 ok = false;
                 break;
             }
         } else {
-            child.size = fd.nFileSizeHigh ? 0xFFFFFFFFu : fd.nFileSizeLow;
+            child.size = e.st.size > 0xFFFFFFFFull ? 0xFFFFFFFFu : (uint32_t)e.st.size;
             (*files)++;
         }
         node->children.push_back(std::move(child));
-    } while (FindNextFileA(f, &fd));
-    FindClose(f);
+    }
     /* the volume's order: vol_dir_find's binary search compares bytes */
     std::sort(node->children.begin(), node->children.end(),
               [](const TocNode &a, const TocNode &b) { return a.name < b.name; });
@@ -478,6 +494,18 @@ void toc_write(const TocNode &n, uint32_t parent, std::vector<uint8_t> &img, std
         toc_write(c, n.off, img, names, namesAt);
 }
 
+/* The path of a host path in UTF-8 (host_file_full_path_utf8; a
+ * mod file: its path as listed, the real case). */
+std::string full_path_utf8(const char *path)
+{
+    const ModFile *m;
+    if (outside_path(path))
+        return fs::system_path(outside_utf8(path));
+    if (mod_lookup(path, &m) && m != nullptr)
+        return m->full;
+    return fs::system_path(host_path_utf8(path));
+}
+
 } // namespace
 
 extern "C" {
@@ -488,43 +516,47 @@ int host_file_full_path(const char *path, char *out, uint32_t size)
      * folder's) */
     const ModFile *m;
     std::string p;
-    if (system_path(path))
+    if (outside_path(path))
         p = path;
     else if (!(mod_lookup(path, &m) && m != nullptr && narrow(m->full, &p)))
         p = host_path(path);
+#ifndef _WIN32
+    p = fs::system_path(p);                 /* (the parts in their real case) */
+#endif
     if (p.size() + 1 > size)
         return -1;
     memcpy(out, p.c_str(), p.size() + 1);
     return 0;
 }
 
+#ifdef _WIN32
 int host_file_full_path_w(const char *path, wchar_t *out, uint32_t size)
 {
-    const ModFile *m;
-    std::wstring w;
-    if (system_path(path))
-        w = system_wide(path);
-    else if (mod_lookup(path, &m) && m != nullptr)
-        w = m->full;
-    else
-        w = widen(host_path(path));
+    const std::wstring w = fs::widen(full_path_utf8(path));
     if (w.size() + 1 > size)
         return -1;
     memcpy(out, w.c_str(), (w.size() + 1) * sizeof(wchar_t));
+    return 0;
+}
+#endif
+
+int host_file_full_path_utf8(const char *path, char *out, uint32_t size)
+{
+    const std::string p = full_path_utf8(path);
+    if (p.size() + 1 > size)
+        return -1;
+    memcpy(out, p.c_str(), p.size() + 1);
     return 0;
 }
 
 int host_file_present(const char *path)
 {
     const ModFile *m;
-    if (system_path(path)) {
-        const DWORD s = GetFileAttributesW(system_wide(path).c_str());
-        return s != INVALID_FILE_ATTRIBUTES && !(s & FILE_ATTRIBUTE_DIRECTORY) ? 1 : 0;
-    }
+    if (outside_path(path))
+        return fs::is_file(outside_utf8(path)) ? 1 : 0;
     if (!mod_lookup(path, &m))
         return 0;
-    const DWORD a = m != nullptr ? GetFileAttributesW(m->full.c_str()) : GetFileAttributesA(host_path(path).c_str());
-    if (a != INVALID_FILE_ATTRIBUTES && !(a & FILE_ATTRIBUTE_DIRECTORY))
+    if (fs::is_file(m != nullptr ? m->full : host_path_utf8(path)))
         return 1;
     return m == nullptr && disc_lookup(path) != nullptr ? 1 : 0;    /* PC (2026-11-14): the disc image's */
 }
@@ -544,19 +576,17 @@ void host_file_list(const char *path, void (*fn)(const char *name, void *arg), v
             }
         }
     }
-    WIN32_FIND_DATAA fd;
-    HANDLE f = FindFirstFileExA((host_path(path) + "\\*").c_str(), FindExInfoBasic, &fd, FindExSearchNameMatch, nullptr,
-                                FIND_FIRST_EX_LARGE_FETCH);
-    if (f != INVALID_HANDLE_VALUE) {
-        do {
-            if (fd.dwFileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM))
+    std::vector<fs::Entry> entries;
+    if (fs::list(host_path_utf8(path), &entries)) {
+        for (const fs::Entry &e : entries) {
+            if (e.st.dir || e.st.hidden)
                 continue;
-            if (std::find(seen.begin(), seen.end(), lower(fd.cFileName)) == seen.end()) {
-                seen.push_back(lower(fd.cFileName));
-                fn(fd.cFileName, arg);
+            const std::string name = fs::utf8_to_native(e.name);
+            if (std::find(seen.begin(), seen.end(), lower(name)) == seen.end()) {
+                seen.push_back(lower(name));
+                fn(name.c_str(), arg);
             }
-        } while (FindNextFileA(f, &fd));
-        FindClose(f);
+        }
     }
     /* PC (2026-11-14): then the disc image's (the folder's own files, those
      * the mods and the data folder do not have) */
@@ -576,9 +606,9 @@ void host_file_list(const char *path, void (*fn)(const char *name, void *arg), v
 /* The failed open's error, when it means the file is there but held. */
 static void note_held()
 {
-    const DWORD e = GetLastError();
-    if (t_held == 0 && (e == ERROR_SHARING_VIOLATION || e == ERROR_LOCK_VIOLATION || e == ERROR_ACCESS_DENIED))
-        t_held = e;
+    const unsigned long e = fs::last_error();
+    if (t_held == 0 && fs::error_held(e))
+        t_held = (unsigned)e;
 }
 
 unsigned host_file_held(void)
@@ -589,44 +619,40 @@ unsigned host_file_held(void)
 int host_file_open(const char *path)
 {
     const ModFile *m;
-    HANDLE h = INVALID_HANDLE_VALUE;
+    fs::File f;
     t_held = 0;
-    if (system_path(path)) {
+    if (outside_path(path)) {
         /* (any sharing: a song a player or a tag editor has open still plays) */
-        h = CreateFileW(system_wide(path).c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-                        nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+        f.open(outside_utf8(path), fs::kRead, fs::Create::open_existing,
+               fs::kShareRead | fs::kShareWrite | fs::kShareDelete);
         if (file_log())
-            pclog::write(h == INVALID_HANDLE_VALUE ? "file: %s missing" : "file: %s (outside the data folder)", path);
-        return h == INVALID_HANDLE_VALUE ? -1 : add(h);
+            pclog::write(!f.is_open() ? "file: %s missing" : "file: %s (outside the data folder)", path);
+        return !f.is_open() ? -1 : add(std::move(f));
     }
     if (mod_lookup(path, &m)) {
         if (m != nullptr) {
-            h = CreateFileW(m->full.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
-                            FILE_ATTRIBUTE_NORMAL, nullptr);
-            if (h == INVALID_HANDLE_VALUE)
+            if (!f.open(m->full, fs::kRead, fs::Create::open_existing, fs::kShareRead))
                 note_held();
         }
-        if (h == INVALID_HANDLE_VALUE) {
+        if (!f.is_open()) {
             m = nullptr;                    /* (a mod file gone since: the data folder's) */
-            h = CreateFileA(host_path(path).c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
-                            FILE_ATTRIBUTE_NORMAL, nullptr);
-            if (h == INVALID_HANDLE_VALUE)
+            if (!f.open(host_path_utf8(path), fs::kRead, fs::Create::open_existing, fs::kShareRead))
                 note_held();
         }
         /* PC (2026-11-14): neither has it: the disc image's volume (a file
          * of the data folder that another program holds is not replaced by
          * the disc's: the caller waits for it, pc_data_file) */
-        if (h == INVALID_HANDLE_VALUE && t_held == 0) {
+        if (!f.is_open() && t_held == 0) {
             const disc_image::File *d = disc_lookup(path);
             if (d != nullptr) {
                 if (file_log())
                     pclog::write("file: %s (%u bytes, the disc image's%s)", relative_path(path).c_str(), d->size,
                                  d->packed ? ", packed" : "");
-                return add(INVALID_HANDLE_VALUE, d);
+                return add(fs::File(), d);
             }
         }
     }
-    if (h == INVALID_HANDLE_VALUE) {
+    if (!f.is_open()) {
         /* (probes are normal: file_resolve tries host: first; quiet) */
         if (file_log())
             pclog::write("file: %s missing", relative_path(path).c_str());
@@ -634,24 +660,23 @@ int host_file_open(const char *path)
     }
     if (file_log()) {
         const char *from = m != nullptr ? ", a mod's" : "";
-        LARGE_INTEGER sz;
-        if (GetFileSizeEx(h, &sz))
-            pclog::write("file: %s (%lld bytes%s)", relative_path(path).c_str(), (long long)sz.QuadPart, from);
+        const int64_t sz = f.size();
+        if (sz >= 0)
+            pclog::write("file: %s (%lld bytes%s)", relative_path(path).c_str(), (long long)sz, from);
         else
             pclog::write("file: %s%s", relative_path(path).c_str(), m != nullptr ? " (a mod's)" : "");
     }
-    return add(h);
+    return add(std::move(f));
 }
 
 int host_file_create(const char *path)
 {
-    std::string p = host_path(path);
-    HANDLE h = CreateFileA(p.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
-                           FILE_ATTRIBUTE_NORMAL, nullptr);
+    fs::File f;
+    f.open(host_path_utf8(path), fs::kWrite, fs::Create::create_always, fs::kShareNone);
     if (file_log())
-        pclog::write(h == INVALID_HANDLE_VALUE ? "file: %s could not be written" : "file: %s written",
+        pclog::write(!f.is_open() ? "file: %s could not be written" : "file: %s written",
                      relative_path(path).c_str());
-    return h == INVALID_HANDLE_VALUE ? -1 : add(h);
+    return !f.is_open() ? -1 : add(std::move(f));
 }
 
 void host_file_quiet(int on)
@@ -664,8 +689,7 @@ void host_file_close(int fd)
     std::shared_ptr<const std::vector<uint8_t>> unpacked;    /* (let go of outside the lock) */
     std::lock_guard<std::mutex> lock(g_mutex);
     if (fd >= 0 && fd < kFiles && g_used[fd]) {
-        if (g_files[fd].h != INVALID_HANDLE_VALUE)
-            CloseHandle(g_files[fd].h);
+        g_files[fd].file.close();
         unpacked.swap(g_files[fd].unpacked);
         g_files[fd] = HostFile();
         g_used[fd] = false;
@@ -676,11 +700,8 @@ int64_t host_file_size(int fd)
 {
     if (const disc_image::File *d = get_disc(fd))
         return d->size;                     /* (once unpacked, as an install has it) */
-    HANDLE h = get(fd);
-    LARGE_INTEGER sz;
-    if (h == INVALID_HANDLE_VALUE || !GetFileSizeEx(h, &sz))
-        return -1;
-    return sz.QuadPart;
+    const fs::File *f = get(fd);
+    return f != nullptr ? f->size() : -1;
 }
 
 int host_file_read_at(int fd, uint64_t offset, void *buf, uint32_t bytes)
@@ -699,39 +720,23 @@ int host_file_read_at(int fd, uint64_t offset, void *buf, uint32_t bytes)
         memcpy(buf, u->data() + (size_t)offset, bytes);
         return (int)bytes;
     }
-    HANDLE h = get(fd);
-    if (h == INVALID_HANDLE_VALUE)
-        return -1;
-    OVERLAPPED ov = {};
-    ov.Offset = (DWORD)offset;
-    ov.OffsetHigh = (DWORD)(offset >> 32);
-    DWORD got = 0;
-    if (!ReadFile(h, buf, bytes, &got, &ov))
-        return GetLastError() == ERROR_HANDLE_EOF ? 0 : -1;
-    return (int)got;
+    const fs::File *f = get(fd);
+    return f != nullptr ? f->read_at(offset, buf, bytes) : -1;
 }
 
 int host_file_write_at(int fd, uint64_t offset, const void *buf, uint32_t bytes)
 {
     if (get_disc(fd) != nullptr)
         return -1;                          /* (the disc image is never written) */
-    HANDLE h = get(fd);
-    if (h == INVALID_HANDLE_VALUE)
-        return -1;
-    OVERLAPPED ov = {};
-    ov.Offset = (DWORD)offset;
-    ov.OffsetHigh = (DWORD)(offset >> 32);
-    DWORD put = 0;
-    if (!WriteFile(h, buf, bytes, &put, &ov))
-        return -1;
-    return (int)put;
+    const fs::File *f = get(fd);
+    return f != nullptr ? f->write_at(offset, buf, bytes) : -1;
 }
 
 uint8_t *host_file_toc(const char *path, void *(*alloc)(uint32_t size), uint32_t *size)
 {
     *size = 0;
     std::string folder = host_path(path);
-    while (!folder.empty() && folder.back() == '\\')
+    while (!folder.empty() && (folder.back() == '\\' || folder.back() == '/'))
         folder.pop_back();
     TocNode root;
     root.dir = true;

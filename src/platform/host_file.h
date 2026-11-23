@@ -32,7 +32,12 @@
  * song of bgm/ads.txt anywhere on the machine, docs/sound.md 2.4) is read
  * where it is, by host_file_open, _present and _full_path(_w), no mod folder
  * in the way: UTF-8, which spells any file's name, else (typed by hand) the
- * ANSI code page's. */
+ * ANSI code page's.  Off Windows such a path starts at the root ("/home/...",
+ * not "/data/...").
+ *
+ * The files are reached through the platform's file layer
+ * (platform/os/fs.h): off Windows a path's parts are found in any case, as
+ * the game's data names them in the disc's. */
 #pragma once
 
 #include <stdint.h>
@@ -53,10 +58,17 @@ unsigned host_file_held(void);
 /* The Windows path (the ANSI code page's) of a host path, into out (size
  * bytes): 0, or -1 when it does not fit.  Whether the file exists is not
  * checked.  A mod's file: its path (the data folder's when the code page
- * cannot spell it). */
+ * cannot spell it).  Off Windows: the system's path (UTF-8, '/'), the parts
+ * that exist in their real case. */
 int  host_file_full_path(const char *path, char *out, uint32_t size);
+#ifdef _WIN32
 /* The same in UTF-16 (size: characters), which any file's name fits. */
 int  host_file_full_path_w(const char *path, wchar_t *out, uint32_t size);
+#endif
+/* The same in UTF-8 (size: bytes), which any file's name fits: what SQLite
+ * and the other libraries take.  Off Windows it is host_file_full_path's,
+ * the parts that exist in their real case (platform/os/fs.h). */
+int  host_file_full_path_utf8(const char *path, char *out, uint32_t size);
 /* The file exists (a quiet probe: not logged as missing; not the game's
  * host_file_exists, T505). */
 int  host_file_present(const char *path);

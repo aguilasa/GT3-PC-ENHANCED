@@ -32,8 +32,8 @@ bool is_database(const std::string &path)
     return path.size() > n && _stricmp(path.c_str() + path.size() - n, kExt) == 0;
 }
 
-/* The Windows path of the file read (a mod's, else the data folder's): the
- * alert names it. */
+/* The path of the file read (a mod's, else the data folder's): the alert
+ * names it. */
 std::string full_path(const std::string &host)
 {
     char full[1024];
@@ -62,13 +62,13 @@ void wait_end(const std::string &path)
  * commit, a change it has not finished) is waited for. */
 bool read_database(const std::string &path, const std::string &host, std::string *out)
 {
-    wchar_t wide[1024];
-    if (host_file_full_path_w(host.c_str(), wide, 1024) != 0)
+    char full[4096];                            /* (UTF-8: SQLite's, which spells any file's name) */
+    if (host_file_full_path_utf8(host.c_str(), full, sizeof(full)) != 0)
         return false;
     bool waited = false;
     for (;;) {
         std::string error;
-        const sqlite_file::Result r = sqlite_file::read(wide, out, &error);
+        const sqlite_file::Result r = sqlite_file::read(full, out, &error);
         if (r == sqlite_file::Result::ok)
             break;
         if (r != sqlite_file::Result::busy) {
@@ -103,7 +103,11 @@ bool read_plain(const std::string &path, const std::string &host, std::string *o
             host_file_close(fd);
         if (!waited) {
             char why[80];
+#ifdef _WIN32
             snprintf(why, sizeof(why), "is held by another program (Windows error %u)", held);
+#else
+            snprintf(why, sizeof(why), "is held by another program (error %u)", held);
+#endif
             wait_begin(path, host, why);
         }
         waited = true;

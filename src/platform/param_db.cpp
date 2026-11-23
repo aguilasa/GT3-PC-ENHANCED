@@ -1,7 +1,13 @@
 /* param_db.cpp - GT3's database folder as SQLite (param_db.h). */
 #include "platform/param_db.h"
 
-#include <windows.h>
+/* (Windows: <windows.h>'s code pages; elsewhere the same conversions,
+ * EUC-JP as code page 20932 has it: platform/os/eucjp.h) */
+#include "platform/os/win_compat.h"
+#ifndef _WIN32
+#include "platform/os/eucjp.h"
+#include "platform/os/fs.h"
+#endif
 
 #include <sqlite3.h>
 
@@ -184,6 +190,7 @@ bool ascii(const std::string &s)
     return true;
 }
 
+#ifdef _WIN32
 std::wstring widen(UINT cp, const std::string &s)
 {
     if (s.empty())
@@ -212,6 +219,71 @@ std::string narrow(UINT cp, const std::wstring &w, bool *lossy)
     return s;
 }
 
+/* bytes [at, at + n) of code page 20932 appended to *w; false (nothing
+ * appended) when they are not valid there (MB_ERR_INVALID_CHARS). */
+bool euc_append(const char *bytes, size_t n, std::wstring *w)
+{
+    const int k = MultiByteToWideChar(kEucJp, MB_ERR_INVALID_CHARS, bytes, (int)n, nullptr, 0);
+    if (k <= 0)
+        return false;
+    const size_t at = w->size();
+    w->resize(at + (size_t)k);
+    MultiByteToWideChar(kEucJp, 0, bytes, (int)n, &(*w)[at], k);
+    return true;
+}
+#else
+/* (the code pages the database uses: UTF-8, Latin-1 and EUC-JP's 20932,
+ * which converts as Windows does; wchar_t is UTF-32 here) */
+std::wstring widen(UINT cp, const std::string &s)
+{
+    if (cp == CP_UTF8)
+        return fs::widen(s);
+    std::wstring w;
+    if (cp == kEucJp) {
+        std::u32string u;
+        if (eucjp::decode(s.data(), s.size(), &u))
+            w.assign(u.begin(), u.end());
+        return w;
+    }
+    for (char c : s)
+        w.push_back((wchar_t)(uint8_t)c);       /* (Latin-1) */
+    return w;
+}
+
+std::string narrow(UINT cp, const std::wstring &w, bool *lossy)
+{
+    *lossy = false;
+    if (w.empty())
+        return std::string();
+    if (cp == CP_UTF8)
+        return fs::narrow(w);
+    if (cp == kEucJp)
+        return eucjp::encode(std::u32string(w.begin(), w.end()), lossy);
+    std::string s;
+    for (wchar_t c : w) {
+        const bool has = (uint32_t)c <= 0xFF;   /* (Latin-1) */
+        s += has ? (char)c : '?';
+        *lossy = *lossy || !has;
+    }
+    return s;
+}
+
+bool euc_append(const char *bytes, size_t n, std::wstring *w)
+{
+    std::u32string u;
+    if (n == 0 || !eucjp::decode(bytes, n, &u))
+        return false;
+    w->append(u.begin(), u.end());
+    return true;
+}
+#endif
+
+/* A high surrogate of UTF-16 (wchar_t's on Windows; none where it is UTF-32). */
+bool high_surrogate(wchar_t c)
+{
+    return sizeof(wchar_t) == 2 && (uint32_t)c >= 0xD800 && (uint32_t)c <= 0xDBFF;
+}
+
 /* The game's EUC-JP text: code page 20932, and its escape for the Latin-1
  * letters EUC-JP lacks, 0x81 then the letter's byte ("Citro\x81\xEBn": no
  * EUC-JP byte pair starts with 0x81).  false when the bytes are neither. */
@@ -230,12 +302,8 @@ bool euc_decode(const std::string &b, std::wstring *w)
         size_t j = i;
         while (j < b.size() && (uint8_t)b[j] != 0x81)
             j++;
-        const int n = MultiByteToWideChar(kEucJp, MB_ERR_INVALID_CHARS, &b[i], (int)(j - i), nullptr, 0);
-        if (n <= 0)
+        if (!euc_append(&b[i], j - i, w))
             return false;
-        const size_t at = w->size();
-        w->resize(at + (size_t)n);
-        MultiByteToWideChar(kEucJp, 0, &b[i], (int)(j - i), &(*w)[at], n);
         i = j;
     }
     return true;
@@ -256,7 +324,7 @@ std::string euc_encode(const std::wstring &w, bool *lossy)
     s.clear();
     *lossy = false;
     for (size_t k = 0; k < w.size(); k++) {
-        const size_t len = IS_HIGH_SURROGATE(w[k]) && k + 1 < w.size() ? 2 : 1;
+        const size_t len = high_surrogate(w[k]) && k + 1 < w.size() ? 2 : 1;
         bool miss = false;
         const std::string c = narrow(kEucJp, w.substr(k, len), &miss);
         const bool jis0208 = c.size() == 1 ? (uint8_t)c[0] < 0x80

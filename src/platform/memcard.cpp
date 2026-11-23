@@ -3,9 +3,12 @@
 #include "platform/log.h"
 #include "platform/paths.h"
 #include "platform/save_folders.h"             /* PC (2026-11-15): the save folders */
+#include "platform/os/fs.h"
+#include "platform/os/win_compat.h"
 #include "sifdev.h"
 
-#include <windows.h>
+#include <ctype.h>
+#include <string.h>
 
 #include <algorithm>
 #include <mutex>
@@ -26,7 +29,7 @@ std::mutex g_mutex;
 struct Fd {
     bool   used;
     bool   writer;                  /* opened for writing (busy) */
-    HANDLE h;
+    fs::File file;
     int    port;
 };
 Fd g_fds[kMaxFds];
@@ -61,7 +64,7 @@ struct Slot {
     bool swapped = false;
 };
 Slot g_slot[2];
-std::string g_savesDir;                         /* saves\<engine>\ (ANSI, with its '\') */
+std::string g_savesDir;                         /* saves\<engine>\ (ANSI, with its '\'; fs.h native, kSep) */
 std::vector<std::string> g_folders;             /* folders(): the last read, and when (GetTickCount64) */
 ULONGLONG g_foldersAt;
 
@@ -87,7 +90,7 @@ void apply_wanted(int port)
             return;
     s.wanted = false;
     s.name = s.wantedName;
-    s.root = s.name.empty() ? std::string() : g_savesDir + s.name + "\\";
+    s.root = s.name.empty() ? std::string() : g_savesDir + s.name + fs::kSep;
     s.swapped = true;
     g_reported[port] = false;
     g_listing[port] = Listing();
@@ -124,67 +127,85 @@ std::string card_path(int port, const char *name)
     while (!p.empty() && (p[0] == '/' || p[0] == '\\'))
         p.erase(0, 1);
     for (char &c : p)
-        if (c == '/')
-            c = '\\';
+        if (c == '/' || c == '\\')
+            c = fs::kSep;
     return card_root(port) + p;
 }
 
+/* (the native text: fs.h) */
 bool is_dir(const std::string &p)
 {
-    DWORD a = GetFileAttributesA(p.c_str());
-    return a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_DIRECTORY);
+    return fs::is_dir(fs::native_to_utf8(p));
 }
 
 bool exists(const std::string &p)
 {
-    return GetFileAttributesA(p.c_str()) != INVALID_FILE_ATTRIBUTES;
+    return fs::exists(fs::native_to_utf8(p));
 }
 
 std::string parent_of(const std::string &p)
 {
-    size_t s = p.find_last_of('\\');
+    size_t s = p.find_last_of(fs::kSep);
     return s == std::string::npos ? std::string() : p.substr(0, s);
 }
 
-/* A FILETIME as the card's date (Japan time, as the PS2's clock). */
-void card_date(const FILETIME &ft, sceMcStDateTime *d)
+/* Days since 1970-01-01 of a date of the proleptic Gregorian calendar, and
+ * back (H. Hinnant's days_from_civil, civil_from_days). */
+int64_t days_from_civil(int64_t y, unsigned m, unsigned d)
 {
-    ULARGE_INTEGER u;
-    u.LowPart = ft.dwLowDateTime;
-    u.HighPart = ft.dwHighDateTime;
-    u.QuadPart += (ULONGLONG)kJstOffset * 10000000ULL;
-    FILETIME j;
-    j.dwLowDateTime = u.LowPart;
-    j.dwHighDateTime = u.HighPart;
-    SYSTEMTIME st;
-    FileTimeToSystemTime(&j, &st);
-    d->Resv2 = 0;
-    d->Sec = (unsigned char)st.wSecond;
-    d->Min = (unsigned char)st.wMinute;
-    d->Hour = (unsigned char)st.wHour;
-    d->Day = (unsigned char)st.wDay;
-    d->Month = (unsigned char)st.wMonth;
-    d->Year = st.wYear;
+    y -= m <= 2;
+    const int64_t era = (y >= 0 ? y : y - 399) / 400;
+    const unsigned yoe = (unsigned)(y - era * 400);
+    const unsigned doy = (153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1;
+    const unsigned doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    return era * 146097 + (int64_t)doe - 719468;
 }
 
-bool card_filetime(const sceMcStDateTime *d, FILETIME *out)
+void civil_from_days(int64_t z, int64_t *y, unsigned *m, unsigned *d)
 {
-    SYSTEMTIME st = {};
-    st.wYear = d->Year;
-    st.wMonth = d->Month;
-    st.wDay = d->Day;
-    st.wHour = d->Hour;
-    st.wMinute = d->Min;
-    st.wSecond = d->Sec;
-    FILETIME ft;
-    if (!SystemTimeToFileTime(&st, &ft))
+    z += 719468;
+    const int64_t era = (z >= 0 ? z : z - 146096) / 146097;
+    const unsigned doe = (unsigned)(z - era * 146097);
+    const unsigned yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    const unsigned doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    const unsigned mp = (5 * doy + 2) / 153;
+    *d = doy - (153 * mp + 2) / 5 + 1;
+    *m = mp < 10 ? mp + 3 : mp - 9;
+    *y = (int64_t)yoe + era * 400 + (*m <= 2);
+}
+
+/* A file time as the card's date (Japan time, as the PS2's clock): what
+ * FileTimeToSystemTime gives for it moved by 9 hours. */
+void card_date(fs::Time ft, sceMcStDateTime *d)
+{
+    const int64_t s = fs::to_unix(ft) + kJstOffset;
+    const int64_t days = (s >= 0 ? s : s - 86399) / 86400;
+    const int64_t sec = s - days * 86400;
+    int64_t y;
+    unsigned m, day;
+    civil_from_days(days, &y, &m, &day);
+    d->Resv2 = 0;
+    d->Sec = (unsigned char)(sec % 60);
+    d->Min = (unsigned char)(sec / 60 % 60);
+    d->Hour = (unsigned char)(sec / 3600);
+    d->Day = (unsigned char)day;
+    d->Month = (unsigned char)m;
+    d->Year = (unsigned short)y;
+}
+
+/* The card's date as a file time; false when it is no date (as
+ * SystemTimeToFileTime: the year 1601..30827, a month's day, 0..23:59:59). */
+bool card_filetime(const sceMcStDateTime *d, fs::Time *out)
+{
+    static const unsigned char kDays[12] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    const unsigned y = d->Year, m = d->Month, day = d->Day;
+    if (y < 1601 || y > 30827 || m < 1 || m > 12 || d->Hour > 23 || d->Min > 59 || d->Sec > 59)
         return false;
-    ULARGE_INTEGER u;
-    u.LowPart = ft.dwLowDateTime;
-    u.HighPart = ft.dwHighDateTime;
-    u.QuadPart -= (ULONGLONG)kJstOffset * 10000000ULL;
-    out->dwLowDateTime = u.LowPart;
-    out->dwHighDateTime = u.HighPart;
+    const bool leap = (y % 4 == 0 && y % 100 != 0) || y % 400 == 0;
+    if (day < 1 || day > kDays[m - 1] + (m == 2 && leap ? 1u : 0u))
+        return false;
+    const int64_t s = days_from_civil(y, m, day) * 86400 + d->Hour * 3600 + d->Min * 60 + d->Sec;
+    *out = fs::from_unix(s - kJstOffset);
     return true;
 }
 
@@ -207,18 +228,23 @@ bool match(const char *pat, const char *s)
     return *s == 0;
 }
 
+/* dir's entries (the native text: fs.h), their names the ANSI code page's;
+ * false when it cannot be listed. */
+bool list_entries(const std::string &dir, std::vector<fs::Entry> *out)
+{
+    if (!fs::list(fs::native_to_utf8(dir), out))
+        return false;
+    for (fs::Entry &e : *out)
+        e.name = fs::utf8_to_native(e.name);
+    return true;
+}
+
 int count_entries(const std::string &dir)
 {
     int n = 2;                                  /* "." and ".." */
-    WIN32_FIND_DATAA fd;
-    HANDLE f = FindFirstFileA((dir + "\\*").c_str(), &fd);
-    if (f == INVALID_HANDLE_VALUE)
-        return n;
-    do {
-        if (strcmp(fd.cFileName, ".") && strcmp(fd.cFileName, ".."))
-            n++;
-    } while (FindNextFileA(f, &fd));
-    FindClose(f);
+    std::vector<fs::Entry> entries;
+    if (list_entries(dir, &entries))
+        n += (int)entries.size();
     return n;
 }
 
@@ -227,19 +253,15 @@ int count_entries(const std::string &dir)
 int used_clusters(const std::string &dir)
 {
     int used = (count_entries(dir) + 1) / 2;
-    WIN32_FIND_DATAA fd;
-    HANDLE f = FindFirstFileA((dir + "\\*").c_str(), &fd);
-    if (f == INVALID_HANDLE_VALUE)
+    std::vector<fs::Entry> entries;
+    if (!list_entries(dir, &entries))
         return used;
-    do {
-        if (!strcmp(fd.cFileName, ".") || !strcmp(fd.cFileName, ".."))
-            continue;
-        if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
-            used += used_clusters(dir + "\\" + fd.cFileName);
+    for (const fs::Entry &e : entries) {
+        if (e.st.dir)
+            used += used_clusters(dir + fs::kSep + e.name);
         else
-            used += (int)((((ULONGLONG)fd.nFileSizeHigh << 32 | fd.nFileSizeLow) + 1023) / 1024);
-    } while (FindNextFileA(f, &fd));
-    FindClose(f);
+            used += (int)((e.st.size + 1023) / 1024);
+    }
     return used;
 }
 
@@ -251,16 +273,14 @@ int free_clusters(int port)
     return f < 0 ? 0 : f;
 }
 
-void fill_entry(sceMcTblGetDir *e, const char *name, const WIN32_FIND_DATAA *fd, int size, bool dir)
+void fill_entry(sceMcTblGetDir *e, const char *name, const fs::Stat *st, int size, bool dir)
 {
     memset(e, 0, sizeof(*e));
-    if (fd) {
-        card_date(fd->ftCreationTime, &e->_Create);
-        card_date(fd->ftLastWriteTime, &e->_Modify);
+    if (st) {
+        card_date(st->create, &e->_Create);
+        card_date(st->modify, &e->_Modify);
     } else {
-        FILETIME now;
-        GetSystemTimeAsFileTime(&now);
-        card_date(now, &e->_Create);
+        card_date(fs::now(), &e->_Create);
         e->_Modify = e->_Create;
     }
     e->FileSizeByte = (unsigned int)size;
@@ -270,22 +290,18 @@ void fill_entry(sceMcTblGetDir *e, const char *name, const WIN32_FIND_DATAA *fd,
 
 void delete_tree(const std::string &dir, bool removeSelf)
 {
-    WIN32_FIND_DATAA fd;
-    HANDLE f = FindFirstFileA((dir + "\\*").c_str(), &fd);
-    if (f != INVALID_HANDLE_VALUE) {
-        do {
-            if (!strcmp(fd.cFileName, ".") || !strcmp(fd.cFileName, ".."))
-                continue;
-            std::string p = dir + "\\" + fd.cFileName;
-            if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
+    std::vector<fs::Entry> entries;
+    if (list_entries(dir, &entries)) {
+        for (const fs::Entry &e : entries) {
+            std::string p = dir + fs::kSep + e.name;
+            if (e.st.dir)
                 delete_tree(p, true);
             else
-                DeleteFileA(p.c_str());
-        } while (FindNextFileA(f, &fd));
-        FindClose(f);
+                fs::remove_file(fs::native_to_utf8(p));
+        }
     }
     if (removeSelf)
-        RemoveDirectoryA(dir.c_str());
+        fs::remove_dir(fs::native_to_utf8(dir));
 }
 
 } // namespace
@@ -307,7 +323,7 @@ void init()
         }
         Slot &s = g_slot[port];
         s.name = name;
-        s.root = name.empty() ? std::string() : g_savesDir + name + "\\";
+        s.root = name.empty() ? std::string() : g_savesDir + name + fs::kSep;
         if (name.empty())
             pclog::write("memcard: slot %d: no card", port + 1);
         else
@@ -363,7 +379,7 @@ int open(int port, int slot, const char *name, int mode)
         if (exists(p))
             return sceMcResNoEntry;
         changed();
-        return CreateDirectoryA(p.c_str(), nullptr) ? sceMcResSucceed : sceMcResNoEntry;
+        return fs::make_dir(fs::native_to_utf8(p)) ? sceMcResSucceed : sceMcResNoEntry;
     }
     int fd = -1;
     for (int i = 0; i < kMaxFds; i++)
@@ -375,25 +391,25 @@ int open(int port, int slot, const char *name, int mode)
         return sceMcResUpLimitHandle;
     if (is_dir(p))
         return sceMcResNoEntry;
-    DWORD access = 0;
+    unsigned access = 0;
     int rw = mode & 3;
-    if (rw == SCE_RDONLY || rw == SCE_RDWR) access |= GENERIC_READ;
-    if (rw == SCE_WRONLY || rw == SCE_RDWR) access |= GENERIC_WRITE;
-    DWORD disp = OPEN_EXISTING;
+    if (rw == SCE_RDONLY || rw == SCE_RDWR) access |= fs::kRead;
+    if (rw == SCE_WRONLY || rw == SCE_RDWR) access |= fs::kWrite;
+    fs::Create disp = fs::Create::open_existing;
     if (mode & SCE_CREAT)
-        disp = (mode & SCE_TRUNC) ? CREATE_ALWAYS : OPEN_ALWAYS;
+        disp = (mode & SCE_TRUNC) ? fs::Create::create_always : fs::Create::open_always;
     else if (mode & SCE_TRUNC)
-        disp = TRUNCATE_EXISTING;
+        disp = fs::Create::truncate_existing;
     if ((mode & SCE_CREAT) && !is_dir(parent_of(p)))
         return sceMcResNoEntry;
-    HANDLE h = CreateFileA(p.c_str(), access, FILE_SHARE_READ, nullptr, disp, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (h == INVALID_HANDLE_VALUE)
+    fs::File f;
+    if (!f.open(fs::native_to_utf8(p), access, disp, fs::kShareRead))
         return sceMcResNoEntry;
     g_fds[fd].used = true;
-    g_fds[fd].writer = (access & GENERIC_WRITE) != 0;
+    g_fds[fd].writer = (access & fs::kWrite) != 0;
     if (g_fds[fd].writer)
         changed();
-    g_fds[fd].h = h;
+    g_fds[fd].file = std::move(f);
     g_fds[fd].port = port;
     return fd;
 }
@@ -403,7 +419,7 @@ int close(int fd)
     std::lock_guard<std::mutex> lock(g_mutex);
     if (fd < 0 || fd >= kMaxFds || !g_fds[fd].used)
         return sceMcResDeniedPermit;
-    CloseHandle(g_fds[fd].h);
+    g_fds[fd].file.close();
     if (g_fds[fd].writer)
         changed();
     g_fds[fd].used = false;
@@ -415,9 +431,9 @@ int seek(int fd, int offset, int origin)
     std::lock_guard<std::mutex> lock(g_mutex);
     if (fd < 0 || fd >= kMaxFds || !g_fds[fd].used)
         return sceMcResDeniedPermit;
-    DWORD how = origin == SCE_SEEK_END ? FILE_END : origin == SCE_SEEK_CUR ? FILE_CURRENT : FILE_BEGIN;
-    DWORD pos = SetFilePointer(g_fds[fd].h, offset, nullptr, how);
-    return pos == INVALID_SET_FILE_POINTER ? sceMcResDeniedPermit : (int)pos;
+    const int how = origin == SCE_SEEK_END ? 2 : origin == SCE_SEEK_CUR ? 1 : 0;
+    const int64_t pos = g_fds[fd].file.seek(offset, how);
+    return pos < 0 || pos >= 0xFFFFFFFFLL ? sceMcResDeniedPermit : (int)(uint32_t)pos;
 }
 
 int read(int fd, void *buf, int size)
@@ -425,10 +441,10 @@ int read(int fd, void *buf, int size)
     std::lock_guard<std::mutex> lock(g_mutex);
     if (fd < 0 || fd >= kMaxFds || !g_fds[fd].used)
         return sceMcResDeniedPermit;
-    DWORD got = 0;
-    if (!ReadFile(g_fds[fd].h, buf, size, &got, nullptr))
+    const int got = g_fds[fd].file.read(buf, (uint32_t)size);
+    if (got < 0)
         return sceMcResDeniedPermit;
-    return (int)got;
+    return got;
 }
 
 int write(int fd, const void *buf, int size)
@@ -436,9 +452,9 @@ int write(int fd, const void *buf, int size)
     std::lock_guard<std::mutex> lock(g_mutex);
     if (fd < 0 || fd >= kMaxFds || !g_fds[fd].used)
         return sceMcResDeniedPermit;
-    DWORD pos = SetFilePointer(g_fds[fd].h, 0, nullptr, FILE_CURRENT);
-    DWORD len = GetFileSize(g_fds[fd].h, nullptr);
-    DWORD end = pos + size;
+    const uint32_t pos = (uint32_t)g_fds[fd].file.seek(0, 1);
+    const uint32_t len = (uint32_t)g_fds[fd].file.size();
+    const uint32_t end = pos + size;
     if (end > len) {
         int grow = (int)((end + 1023) / 1024) - (int)((len + 1023) / 1024);
         int freeNow = free_clusters(g_fds[fd].port);
@@ -450,11 +466,11 @@ int write(int fd, const void *buf, int size)
             return sceMcResFullDevice;
         }
     }
-    DWORD put = 0;
     changed();
-    if (!WriteFile(g_fds[fd].h, buf, size, &put, nullptr)) {
+    const int put = g_fds[fd].file.write(buf, (uint32_t)size);
+    if (put < 0) {
         pclog::write("memcard: card %d: write of %d bytes failed (error %lu)", g_fds[fd].port + 1, size,
-                     (unsigned long)GetLastError());
+                     fs::last_error());
         return sceMcResDeniedPermit;
     }
     if ((int)put != size)
@@ -476,12 +492,12 @@ int remove(int port, int slot, const char *name)
     if (is_dir(p)) {
         if (count_entries(p) > 2)
             return sceMcResNotEmpty;
-        return RemoveDirectoryA(p.c_str()) ? sceMcResSucceed : sceMcResDeniedPermit;
+        return fs::remove_dir(fs::native_to_utf8(p)) ? sceMcResSucceed : sceMcResDeniedPermit;
     }
     if (!exists(p))
         return sceMcResNoEntry;
     changed();
-    return DeleteFileA(p.c_str()) ? sceMcResSucceed : sceMcResDeniedPermit;
+    return fs::remove_file(fs::native_to_utf8(p)) ? sceMcResSucceed : sceMcResDeniedPermit;
 }
 
 int rename(int port, int slot, const char *org, const char *newName)
@@ -492,11 +508,11 @@ int rename(int port, int slot, const char *org, const char *newName)
     std::string from = card_path(port, org);
     if (!exists(from))
         return sceMcResNoEntry;
-    std::string to = parent_of(from) + "\\" + newName;
+    std::string to = parent_of(from) + fs::kSep + newName;
     if (exists(to))
         return sceMcResNoEntry;
     changed();
-    return MoveFileA(from.c_str(), to.c_str()) ? sceMcResSucceed : sceMcResDeniedPermit;
+    return fs::rename(fs::native_to_utf8(from), fs::native_to_utf8(to)) ? sceMcResSucceed : sceMcResDeniedPermit;
 }
 
 /* pattern: "dir/name*" lists the matching entries of dir; "dir/ *" a whole
@@ -518,7 +534,7 @@ int get_dir(int port, int slot, const char *pattern, unsigned int mode, int maxe
         std::string dirPart = s == std::string::npos ? "" : pat.substr(0, s);
         std::string namePat = s == std::string::npos ? pat : pat.substr(s + 1);
         std::string dir = card_path(port, dirPart.c_str());
-        if (!dir.empty() && dir.back() == '\\')
+        if (!dir.empty() && dir.back() == fs::kSep)
             dir.pop_back();
         /* A directory that is not there is an error, as libmc's: no entry.
          * (0 entries read as "the directory is there, the file not": the
@@ -537,21 +553,17 @@ int get_dir(int port, int slot, const char *pattern, unsigned int mode, int maxe
             fill_entry(&e, "..", nullptr, 0, true);
             l.entries.push_back(e);
         }
-        WIN32_FIND_DATAA fd;
-        HANDLE f = FindFirstFileA((dir + "\\*").c_str(), &fd);
-        if (f != INVALID_HANDLE_VALUE) {
-            do {
-                if (!strcmp(fd.cFileName, ".") || !strcmp(fd.cFileName, ".."))
+        std::vector<fs::Entry> entries;
+        if (list_entries(dir, &entries)) {
+            for (const fs::Entry &x : entries) {
+                if (!match(namePat.c_str(), x.name.c_str()))
                     continue;
-                if (!match(namePat.c_str(), fd.cFileName))
-                    continue;
-                bool isDir = (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
-                int size = isDir ? count_entries(dir + "\\" + fd.cFileName) : (int)fd.nFileSizeLow;
+                bool isDir = x.st.dir;
+                int size = isDir ? count_entries(dir + fs::kSep + x.name) : (int)(uint32_t)x.st.size;
                 sceMcTblGetDir e;
-                fill_entry(&e, fd.cFileName, &fd, size, isDir);
+                fill_entry(&e, x.name.c_str(), &x.st, size, isDir);
                 l.entries.push_back(e);
-            } while (FindNextFileA(f, &fd));
-            FindClose(f);
+            }
         }
     }
     int n = 0;
@@ -571,19 +583,14 @@ int set_file_info(int port, int slot, const char *name, const char *info, unsign
     changed();
     const sceMcTblGetDir *e = (const sceMcTblGetDir *)info;
     if (valid & (sceMcFileInfoCreate | sceMcFileInfoModify)) {
-        HANDLE h = CreateFileA(p.c_str(), FILE_WRITE_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
-                               OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, nullptr);
-        if (h != INVALID_HANDLE_VALUE) {
-            FILETIME c, m;
-            bool hc = (valid & sceMcFileInfoCreate) && card_filetime(&e->_Create, &c);
-            bool hm = (valid & sceMcFileInfoModify) && card_filetime(&e->_Modify, &m);
-            SetFileTime(h, hc ? &c : nullptr, nullptr, hm ? &m : nullptr);
-            CloseHandle(h);
-        }
+        fs::Time c, m;
+        bool hc = (valid & sceMcFileInfoCreate) && card_filetime(&e->_Create, &c);
+        bool hm = (valid & sceMcFileInfoModify) && card_filetime(&e->_Modify, &m);
+        fs::set_times(fs::native_to_utf8(p), hc ? &c : nullptr, hm ? &m : nullptr);
     }
     if ((valid & 0x10) && e->EntryName[0]) {             /* the name */
-        std::string to = parent_of(p) + "\\" + (const char *)e->EntryName;
-        if (to != p && !MoveFileA(p.c_str(), to.c_str()))
+        std::string to = parent_of(p) + fs::kSep + (const char *)e->EntryName;
+        if (to != p && !fs::rename(fs::native_to_utf8(p), fs::native_to_utf8(to)))
             return sceMcResNoEntry;
     }
     return sceMcResSucceed;
@@ -606,7 +613,7 @@ int format(int port, int slot)
     std::string root = card_root(port);
     root.pop_back();
     changed();
-    CreateDirectoryA(root.c_str(), nullptr);
+    fs::make_dir(fs::native_to_utf8(root));
     delete_tree(root, false);
     pclog::write("memcard: card %d formatted", port + 1);
     return sceMcResSucceed;

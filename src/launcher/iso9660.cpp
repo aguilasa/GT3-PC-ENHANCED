@@ -19,8 +19,7 @@
 #include "iso9660.h"
 #include "util.h"
 #include "platform/ui_text.h"  /* PC (2026-11-16): the interface's languages */
-
-#include <windows.h>
+#include "platform/os/fs.h"
 
 #include <string.h>
 
@@ -87,9 +86,8 @@ Image::~Image() { close(); }
 
 void Image::close()
 {
-    if (handle_)
-        CloseHandle(handle_);
-    handle_ = nullptr;
+    delete file_;
+    file_ = nullptr;
     image_size_ = 0;
     volume_sectors_ = 0;
     volume_id_.clear();
@@ -98,19 +96,14 @@ void Image::close()
 
 bool Image::read_raw(uint64_t offset, void *buf, uint32_t size, std::wstring *error) const
 {
-    /* A positioned read on a synchronous handle: the OVERLAPPED only carries
-     * the offset, so several threads may read the same Image. */
+    /* A positioned read (fs.h read_at), so several threads may read the same
+     * Image. */
     uint8_t *p = static_cast<uint8_t *>(buf);
     while (size) {
-        OVERLAPPED ov = {};
-        ov.Offset = (DWORD)offset;
-        ov.OffsetHigh = (DWORD)(offset >> 32);
-        DWORD got = 0;
-        if (!ReadFile(handle_, p, size, &got, &ov)) {
-            DWORD err = GetLastError();
+        const int got = file_ != nullptr ? file_->read_at(offset, p, size) : -1;
+        if (got < 0) {
             if (error)
-                *error = err == ERROR_HANDLE_EOF ? std::wstring(tr(L"it ends too early (is the image complete?)"))
-                                                 : util::system_error_text(err);
+                *error = util::system_error_text(fs::last_error());
             return false;
         }
         if (got == 0) {
@@ -128,23 +121,23 @@ bool Image::read_raw(uint64_t offset, void *buf, uint32_t size, std::wstring *er
 bool Image::open(const std::wstring &path, std::wstring *error)
 {
     close();
-    HANDLE h = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
-                           FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
-    if (h == INVALID_HANDLE_VALUE) {
+    fs::File *f = new fs::File();
+    if (!f->open(fs::narrow(path), fs::kRead, fs::Create::open_existing, fs::kShareRead, fs::kSequential)) {
         if (error)
-            *error = trf(L"the file could not be opened (%s)", util::system_error_text(GetLastError()).c_str());
+            *error = trf(L"the file could not be opened (%s)", util::system_error_text(fs::last_error()).c_str());
+        delete f;
         return false;
     }
-    handle_ = h;
+    file_ = f;
     path_ = path;
-    LARGE_INTEGER sz;
-    if (!GetFileSizeEx(h, &sz)) {
+    const int64_t sz = f->size();
+    if (sz < 0) {
         if (error)
-            *error = trf(L"the file could not be read (%s)", util::system_error_text(GetLastError()).c_str());
+            *error = trf(L"the file could not be read (%s)", util::system_error_text(fs::last_error()).c_str());
         close();
         return false;
     }
-    image_size_ = (uint64_t)sz.QuadPart;
+    image_size_ = (uint64_t)sz;
 
     const wchar_t *not_iso = N_(L"this file is not a disc image (no ISO 9660 file system)");
     if (image_size_ < (uint64_t)(kFirstDescriptor + 1) * kSectorSize) {

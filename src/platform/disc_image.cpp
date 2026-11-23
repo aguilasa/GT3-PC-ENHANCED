@@ -8,8 +8,7 @@
 #include "launcher/inflate.h"
 #include "launcher/iso9660.h"
 #include "launcher/volume.h"
-
-#include <windows.h>
+#include "platform/os/fs.h"
 
 #include <ctype.h>
 
@@ -42,31 +41,15 @@ std::mutex g_keptMutex;
 std::list<Kept> g_kept;
 size_t g_keptBytes = 0;
 
+/* (the marker's UTF-8; else typed by hand in the ANSI code page) */
 std::wstring widen_utf8(const std::string &s)
 {
-    if (s.empty())
-        return std::wstring();
-    int n = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, s.c_str(), (int)s.size(), nullptr, 0);
-    UINT cp = CP_UTF8;
-    if (n <= 0) {                           /* (typed by hand in the ANSI code page) */
-        cp = CP_ACP;
-        n = MultiByteToWideChar(cp, 0, s.c_str(), (int)s.size(), nullptr, 0);
-    }
-    std::wstring w((size_t)(n > 0 ? n : 0), L'\0');
-    if (n > 0)
-        MultiByteToWideChar(cp, 0, s.c_str(), (int)s.size(), &w[0], n);
-    return w;
+    return fs::widen(fs::utf8_or_native(s));
 }
 
 std::string narrow_utf8(const std::wstring &w)
 {
-    if (w.empty())
-        return std::string();
-    const int n = WideCharToMultiByte(CP_UTF8, 0, w.c_str(), (int)w.size(), nullptr, 0, nullptr, nullptr);
-    std::string s((size_t)(n > 0 ? n : 0), '\0');
-    if (n > 0)
-        WideCharToMultiByte(CP_UTF8, 0, w.c_str(), (int)w.size(), &s[0], n, nullptr, nullptr);
-    return s;
+    return fs::narrow(w);
 }
 
 } // namespace

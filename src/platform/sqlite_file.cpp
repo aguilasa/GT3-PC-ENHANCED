@@ -3,29 +3,15 @@
 #include "platform/sqlite_file.h"
 
 #include <sqlite3.h>
-#include <windows.h>
 
 namespace sqlite_file {
-namespace {
 
-/* (sqlite3_open_v2 takes UTF-8, which spells any file's name) */
-std::string utf8(const wchar_t *w)
-{
-    const int n = WideCharToMultiByte(CP_UTF8, 0, w, -1, nullptr, 0, nullptr, nullptr);
-    if (n <= 1)
-        return std::string();
-    std::string s((size_t)n - 1, '\0');
-    WideCharToMultiByte(CP_UTF8, 0, w, -1, &s[0], n, nullptr, nullptr);
-    return s;
-}
-
-} // namespace
-
-Result read(const wchar_t *path, std::string *out, std::string *error)
+Result read(const char *path, std::string *out, std::string *error)
 {
     out->clear();
     error->clear();
-    const std::string p = utf8(path);
+    /* (sqlite3_open_v2 takes UTF-8, which spells any file's name) */
+    const std::string p = path;
     sqlite3 *db = nullptr;
     /* Read-write, never writing: a read-only file SQLite opens read-only by
      * itself, and a hot journal (an editor that died in a commit) is rolled

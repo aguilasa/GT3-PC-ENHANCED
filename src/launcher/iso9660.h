@@ -16,6 +16,10 @@
 #include <string>
 #include <vector>
 
+namespace fs {
+class File;
+}
+
 namespace iso9660 {
 
 constexpr uint32_t kSectorSize = 2048;  /* logical block size of a DVD image */
@@ -45,7 +49,7 @@ public:
      * (with a message in `error`) when the file is not an ISO 9660 image. */
     bool open(const std::wstring &path, std::wstring *error);
     void close();
-    bool is_open() const { return handle_ != nullptr; }
+    bool is_open() const { return file_ != nullptr; }
 
     uint64_t image_size() const { return image_size_; }        /* bytes of the image file */
     uint32_t volume_sectors() const { return volume_sectors_; } /* volume space size (PVD) */
@@ -77,7 +81,7 @@ public:
 private:
     bool read_dir(const Entry &dir, std::vector<Entry> *out, std::wstring *error) const;
 
-    void *handle_ = nullptr;   /* Win32 file handle */
+    fs::File *file_ = nullptr;  /* (platform/os/fs.h) */
     std::wstring path_;
     uint64_t image_size_ = 0;
     uint32_t volume_sectors_ = 0;

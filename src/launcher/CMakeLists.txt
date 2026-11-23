@@ -61,6 +61,7 @@ add_executable(gt3launcher WIN32
     ps2_icon.cpp
     pclog.cpp
     ${GT3PC_ROOT}/src/platform/input_map.cpp
+    ${GT3PC_ROOT}/src/platform/os/fs_win.cpp
     ${GT3PC_ROOT}/src/platform/save_folders.cpp
     ${GT3PC_ROOT}/src/engine/sound/native/bgm_files.cpp
     ${GT3PC_ROOT}/src/engine/sound/native/spu2_adpcm.cpp

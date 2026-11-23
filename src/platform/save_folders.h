@@ -21,8 +21,8 @@
  * not read any more (left where they are: the user's choice).
  *
  * Shared by the launcher (its save manager, src/launcher/save_manager.h) and
- * the game (platform/memcard.h; the F2 menu's MEMORY CARDS): plain Win32,
- * UTF-16. */
+ * the game (platform/memcard.h; the F2 menu's MEMORY CARDS): wchar_t text
+ * (UTF-16 on Windows, UTF-32 elsewhere), the files through platform/os/fs.h. */
 #pragma once
 
 #include <string>
@@ -68,7 +68,7 @@ std::wstring slot(const std::wstring &engineIni, int slot);
 /* Writes it ("": the key removed - no card). */
 void set_slot(const std::wstring &engineIni, int slot, const std::wstring &name);
 
-/* UTF-16 <-> the ANSI code page (the game's paths). */
+/* wchar_t text <-> the ANSI code page (the game's paths; UTF-8 off Windows). */
 std::wstring from_ansi(const std::string &s);
 std::string to_ansi(const std::wstring &s);
 

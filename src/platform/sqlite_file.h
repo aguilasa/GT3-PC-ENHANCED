@@ -29,7 +29,8 @@ enum class Result {
 /* How long a locked database is waited for in one read. */
 constexpr int kBusyMs = 2000;
 
-/* The database at the Windows path `path` into *out. */
-Result read(const wchar_t *path, std::string *out, std::string *error);
+/* The database at `path` (UTF-8, as the system names it: host_file.h
+ * host_file_full_path_utf8) into *out. */
+Result read(const char *path, std::string *out, std::string *error);
 
 } // namespace sqlite_file

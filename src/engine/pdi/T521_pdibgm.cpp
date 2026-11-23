@@ -118,7 +118,11 @@ int bgm_source_read(void *user, uint32_t offset, void *dst, uint32_t size)
  * head). */
 struct Mp3Bgm {
     gt3media::Mp4AudioReader reader;
+#ifdef _WIN32
     wchar_t path[1024];                         /* (UTF-16: a song's name can be any) */
+#else
+    char path[4096];                            /* (UTF-8: a song's name can be any) */
+#endif
     std::vector<int16_t> pcm;
     size_t pos;
 };
@@ -197,7 +201,12 @@ int mp3_start(const char *hostName, const spu2::BgmFileInfo &info, int loop, con
         return -1;
     g_mp3 = new Mp3Bgm();
     g_mp3->pos = 0;
-    if (host_file_full_path_w(hostName, g_mp3->path, sizeof(g_mp3->path) / sizeof(wchar_t)) != 0) {
+#ifdef _WIN32
+    const int full = host_file_full_path_w(hostName, g_mp3->path, sizeof(g_mp3->path) / sizeof(wchar_t));
+#else
+    const int full = host_file_full_path_utf8(hostName, g_mp3->path, sizeof(g_mp3->path));
+#endif
+    if (full != 0) {
         delete g_mp3;
         g_mp3 = NULL;
         return -1;

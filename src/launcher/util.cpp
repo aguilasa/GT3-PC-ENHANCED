@@ -1,16 +1,23 @@
 /* util.cpp - small helpers shared by the launcher's files (util.h). */
 #include "util.h"
 #include "platform/ui_text.h"                   /* PC (2026-11-16): the interface's languages */
+#include "platform/os/fs.h"
 
+#ifdef _WIN32
 #include <windows.h>
 #include <shobjidl.h>
+#endif
 
 #include <stdio.h>
+#include <wchar.h>
 
 namespace util {
 
 std::wstring system_error_text(unsigned long code)
 {
+#ifndef _WIN32
+    return fs::widen(fs::error_text(code));
+#else
     wchar_t *text = nullptr;
     DWORD n = FormatMessageW(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM |
                                  FORMAT_MESSAGE_IGNORE_INSERTS,
@@ -28,6 +35,7 @@ std::wstring system_error_text(unsigned long code)
         s = buf;
     }
     return s;
+#endif
 }
 
 /* (PC 2026-11-16: the units in the interface's language - French Go / Mo / Ko;
@@ -46,67 +54,34 @@ std::wstring format_size(uint64_t bytes)
 
 std::wstring exe_folder()
 {
-    std::wstring path(MAX_PATH, L'\0');
-    for (;;) {
-        DWORD n = GetModuleFileNameW(nullptr, &path[0], (DWORD)path.size());
-        if (n == 0)
-            return L".\\";
-        if (n < path.size()) {
-            path.resize(n);
-            break;
-        }
-        path.resize(path.size() * 2);
-    }
-    size_t slash = path.find_last_of(L"\\/");
-    return slash == std::wstring::npos ? L".\\" : path.substr(0, slash + 1);
+    const std::wstring path = fs::widen(fs::exe_path());
+    const size_t slash = path.find_last_of(L"\\/");
+    return slash == std::wstring::npos ? std::wstring(1, L'.') + (wchar_t)fs::kSep : path.substr(0, slash + 1);
 }
 
 std::wstring with_slash(std::wstring folder)
 {
     if (!folder.empty() && folder.back() != L'\\' && folder.back() != L'/')
-        folder += L'\\';
+        folder += (wchar_t)fs::kSep;
     return folder;
 }
 
 bool make_folders(const std::wstring &folder)
 {
-    if (folder.empty())
-        return false;
-    DWORD a = GetFileAttributesW(folder.c_str());
-    if (a != INVALID_FILE_ATTRIBUTES)
-        return (a & FILE_ATTRIBUTE_DIRECTORY) != 0;
-    /* Create the parent first, then this folder. */
-    std::wstring path = folder;
-    while (!path.empty() && (path.back() == L'\\' || path.back() == L'/'))
-        path.pop_back();
-    size_t slash = path.find_last_of(L"\\/");
-    if (slash != std::wstring::npos && slash > 0 && path[slash - 1] != L':' && path[slash - 1] != L'\\')
-        make_folders(path.substr(0, slash));
-    if (CreateDirectoryW(path.c_str(), nullptr) || GetLastError() == ERROR_ALREADY_EXISTS)
-        return true;
-    return false;
+    return fs::make_dirs(fs::narrow(folder));
 }
 
 std::wstring widen(const std::string &s)
 {
-    if (s.empty())
-        return std::wstring();
-    int n = MultiByteToWideChar(CP_UTF8, 0, s.data(), (int)s.size(), nullptr, 0);
-    std::wstring w(n, L'\0');
-    MultiByteToWideChar(CP_UTF8, 0, s.data(), (int)s.size(), &w[0], n);
-    return w;
+    return fs::widen(s);
 }
 
 std::string narrow(const std::wstring &w)
 {
-    if (w.empty())
-        return std::string();
-    int n = WideCharToMultiByte(CP_UTF8, 0, w.data(), (int)w.size(), nullptr, 0, nullptr, nullptr);
-    std::string s(n, '\0');
-    WideCharToMultiByte(CP_UTF8, 0, w.data(), (int)w.size(), &s[0], n, nullptr, nullptr);
-    return s;
+    return fs::narrow(w);
 }
 
+#ifdef _WIN32
 std::wstring choose_folder(void *owner, const wchar_t *title, const wchar_t *ok, const std::wstring &start)
 {
     std::wstring out;
@@ -135,5 +110,6 @@ std::wstring choose_folder(void *owner, const wchar_t *title, const wchar_t *ok,
     d->Release();
     return out;
 }
+#endif
 
 } // namespace util
