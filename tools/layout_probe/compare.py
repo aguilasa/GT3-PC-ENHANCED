@@ -18,8 +18,9 @@ the decompiled runtime); the compiler's and the CRT's are each on one side
 only.  The records found on one side only are listed, those with a leading _
 counted.
 
-A record that differs fails the run unless it is in EXCEPTIONS below; each
-exception says why the difference is harmless (C++ ABI of a polymorphic class,
+A record that differs fails the run unless it is in EXCEPTIONS below with
+exactly the difference recorded there (sizeof, align and how each moved
+member moved); each exception says why that difference is harmless (C++ ABI of a polymorphic class,
 pointers to members, a different STL, or PC-only code that is never read from
 or written to the game files, the saves or relocated data).  Only add one
 after checking that.  A decompiled struct read from a file that differs is a
@@ -46,7 +47,9 @@ Checks of the checker:
                       breaks the 8-byte alignment of u64: the run must fail);
     --perturb REC     shifts the last member of REC by 4 on the Linux side
                       after parsing (the run must fail on REC);
-    --reuse           compares dumps already under --out without recompiling.
+    --reuse           compares dumps already under --out without recompiling;
+    --signature       prints the difference of every differing record in the
+                      form EXCEPTIONS takes (to record a reviewed one).
 """
 import argparse
 import concurrent.futures
@@ -61,7 +64,9 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 TARGETS = ("gt3_game.dir", "gt3_engine.dir")
 
 # Records whose layout is allowed to differ between the two targets: name ->
-# why it does not matter.  Each one was checked: no file, save or relocated
+# why it does not matter ("why") and the reviewed difference ("diff", as
+# difference() gives it and --signature prints it): any other difference in
+# the record fails the run.  Each one was checked: no file, save or relocated
 # data is read into it or written from it (no fread / fwrite / memcpy of the
 # whole record, no sizeof of it outside the asserts noted).  The run lists
 # every exception it used and warns about the ones that no longer differ.
@@ -72,53 +77,181 @@ EXCEPTIONS = {
     # (data at +8 when the class holds 8-aligned members); Itanium puts it at +4.
     # The game.h EGCS_SIZE note already says polymorphic classes take the PC
     # compiler's layout.
-    "RaceEntryCar": "polymorphic: MSVC pads the vfptr to 8; allocated by its own operator new "
-                    "and filled by the race set-up, never read from or written to a file",
-    "RaceOrganization": "polymorphic: MSVC pads the vfptr to 8; allocated by its own operator new "
-                        "and filled by the race set-up, never read from or written to a file",
+    "RaceEntryCar": {
+        "why": "polymorphic: MSVC pads the vfptr to 8; allocated by its own operator new and filled "
+               "by the race set-up, never read from or written to a file",
+        "diff": {"sizeof": (9400, 9392),
+                 "moved": {-4: ("distance",
+                                "number",
+                                "rankNext",
+                                "rankPrev",
+                                "sortNext",
+                                "sortPrev",
+                                "state"),
+                           -8: ("assistAsm",
+                                "assistTcs",
+                                "condition",
+                                "date",
+                                "driverName",
+                                "ghostLapTime",
+                                "info",
+                                "input",
+                                "lapRecord",
+                                "lapTime",
+                                "model",
+                                "modelEnabled",
+                                "order",
+                                "pendingModel",
+                                "points",
+                                "sessionBest",
+                                "sound",
+                                "soundLoaded",
+                                "steeringAssist",
+                                "timeRecord",
+                                "topSpeed",
+                                "transmission",
+                                "tyre",
+                                "vibration")}},
+    },
+    "RaceOrganization": {
+        "why": "polymorphic: MSVC pads the vfptr to 8; allocated by its own operator new and filled "
+               "by the race set-up, never read from or written to a file",
+        "diff": {"sizeof": (2256, 2248),
+                 "moved": {-4: ("entries", "option"),
+                           -8: ("backgroundMode",
+                                "countDown",
+                                "course",
+                                "courseCode",
+                                "demonstration",
+                                "eventQueue",
+                                "lapRecord",
+                                "loggerCreating",
+                                "loggerMode",
+                                "loggerSector",
+                                "race",
+                                "raceCode",
+                                "raceDB",
+                                "racePreviewMode",
+                                "result",
+                                "speedRecord",
+                                "speedRecord0",
+                                "startAction",
+                                "startFlag",
+                                "startingCount",
+                                "timeLimit",
+                                "timeRemain",
+                                "timerActive")}},
+    },
     # Pointers to members: MSVC 12/16 bytes, Itanium 4/8 (the EGCS_SIZE_ABI case).
     # The Linux sizes are the PS2 ones the headers assert for egcs.
-    "IOPLoadCommand": "pointer to member function (MSVC 12 bytes, Itanium 8): Linux is the PS2 size "
-                      "0xC; a command table in the code, never in a file",
-    "RaceMeterLayout": "pointer to data member (MSVC 12 bytes, Itanium 4): Linux is the PS2 size "
-                       "0x10; a table built by a static initializer, never in a file",
+    "IOPLoadCommand": {
+        "why": "pointer to member function (MSVC 12 bytes, Itanium 8): Linux is the PS2 size 0xC; a "
+               "command table in the code, never in a file",
+        "diff": {"sizeof": (24, 12), "align": (8, 4), "moved": {-8: ("arg",)}},
+    },
+    "RaceMeterLayout": {
+        "why": "pointer to data member (MSVC 12 bytes, Itanium 4): Linux is the PS2 size 0x10; a "
+               "table built by a static initializer, never in a file",
+        "diff": {"sizeof": (24, 16),
+                 "align": (8, 4),
+                 "moved": {-8: ("alignX", "alignY", "h", "w", "x", "y")}},
+    },
     # Bitfield allocation.
-    "gt2k_menu::CarGetControl": "8-bit bitfields of unsigned int after a s8: GCC/Clang put carsShown/done "
-                                "at unk_ED4+1/+2, the PS2 layout the header documents (0xED4, 0xED5, "
-                                "0xED6); MSVC opens a new unsigned int at +4.  The Linux side is the "
-                                "PS2-correct one; polymorphic menu control, never in a file",
+    "gt2k_menu::CarGetControl": {
+        "why": "8-bit bitfields of unsigned int after a s8: GCC/Clang put carsShown/done at "
+               "unk_ED4+1/+2, the PS2 layout the header documents (0xED4, 0xED5, 0xED6); MSVC opens "
+               "a new unsigned int at +4.  The Linux side is the PS2-correct one; polymorphic menu "
+               "control, never in a file",
+        "diff": {"sizeof": (3796, 3792), "moved": {"-3 bits 0-7/0-7": ("carsShown", "done")}},
+    },
     # Different standard library (MS STL against libstdc++).
-    "paramdb::ExtraTable": "std::string / std::vector / std::unordered_map members (MS STL against "
-                           "libstdc++); PC-only settings database, in memory",
-    "(anonymous namespace)::Pool [src/game/app/pc_prize_cars.cpp]":
-        "std::vector / std::unordered_map members (MS STL against libstdc++); PC-only, in memory",
-    "(anonymous namespace)::Pool [src/game/race/dynamics/pc_physics_threads.cpp]":
-        "std::mutex / std::condition_variable members (MS STL against libstdc++); PC-only "
-        "physics worker pool, in memory",
+    "paramdb::ExtraTable": {
+        "why": "std::string / std::vector / std::unordered_map members (MS STL against libstdc++); "
+               "PC-only settings database, in memory",
+        "diff": {"sizeof": (68, 64)},
+    },
+    "(anonymous namespace)::Pool [src/game/app/pc_prize_cars.cpp]": {
+        "why": "std::vector / std::unordered_map members (MS STL against libstdc++); PC-only, in "
+               "memory",
+        "diff": {"sizeof": (60, 56)},
+    },
+    "(anonymous namespace)::Pool [src/game/race/dynamics/pc_physics_threads.cpp]": {
+        "why": "std::mutex / std::condition_variable members (MS STL against libstdc++); PC-only "
+               "physics worker pool, in memory",
+        "diff": {"sizeof": (128, 112),
+                 "moved": {-16: ("csr",
+                                 "ctx",
+                                 "gen",
+                                 "inside",
+                                 "job",
+                                 "last",
+                                 "left",
+                                 "next",
+                                 "open",
+                                 "x87"),
+                           -24: ("wake",)}},
+    },
     # PC-only code with raw 8-byte types (double, int64_t, uint64_t; not the
     # aligned u64/s64/f64 typedefs): SysV i386 aligns them to 4 inside a struct.
-    "PglVGlyph": "PC-only vector-font glyph (uint64_t tex0), filled by pgl_vfont, in memory only",
-    "paramdb::Value": "PC-only SQLite value (int64_t, double, std::string); in memory, stored "
-                      "member by member through SQLite",
-    "SndNativeBgmDecoder": "PC-only decoder callbacks (uint64_t frames); built on the stack, in memory only",
-    "SndNativeBgmStatus": "PC-only BGM status (int64_t time): same sizeof (0x40) and member offsets on "
-                          "both sides, only its alignment differs (4/8); copied byte for byte into "
-                          "the decomp's BgmStatus, which is identical on both",
-    "gt3media::Mp4AudioReader": "PC-only Media Foundation reader state (int64_t skipTo_), in memory only",
-    "spu2::AdsListTrack": "PC-only ads.txt track (int64_t, double, std::string), parsed from text, "
-                          "in memory only",
-    "PcTween": "PC-only frame-interpolation slot (double), in memory only",
-    "(anonymous namespace)::Still [src/game/app/pc_still.cpp]":
-        "PC-only still picture slot (uint64_t tex0, std::vector), in memory only",
-    "(anonymous namespace)::Decode [src/game/app/pc_still.cpp]":
-        "PC-only PNG decode job (double pixelAspect), in memory only",
-    "(anonymous namespace)::Mp3Bgm [src/engine/pdi/T521_pdibgm.cpp]":
-        "PC-only MP3 BGM state: wchar_t path[1024] (2 bytes on Windows, 4 on Linux), "
-        "Mp4AudioReader, std::vector; in memory only",
-    "(unnamed at src/game/app/pc_debugcam.cpp:46:8)":
-        "PC-only debug camera listener state s_listen (double at), in memory only",
-    "(unnamed at src/game/app/pc_debugcam.cpp:59:8)":
-        "PC-only debug camera state s (double last), in memory only",
+    "PglVGlyph": {
+        "why": "PC-only vector-font glyph (uint64_t tex0), filled by pgl_vfont, in memory only",
+        "diff": {"sizeof": (48, 44), "align": (8, 4), "moved": {-4: ("id", "tab", "tex0")}},
+    },
+    "paramdb::Value": {
+        "why": "PC-only SQLite value (int64_t, double, std::string); in memory, stored member by "
+               "member through SQLite",
+        "diff": {"sizeof": (48, 44), "align": (8, 4), "moved": {-4: ("i", "r", "s")}},
+    },
+    "SndNativeBgmDecoder": {
+        "why": "PC-only decoder callbacks (uint64_t frames); built on the stack, in memory only",
+        "diff": {"sizeof": (40, 36),
+                 "align": (8, 4),
+                 "moved": {-4: ("frames", "open", "read", "rewind", "seek")}},
+    },
+    "SndNativeBgmStatus": {
+        "why": "PC-only BGM status (int64_t time): same sizeof (0x40) and member offsets on both "
+               "sides, only its alignment differs (4/8); copied byte for byte into the decomp's "
+               "BgmStatus, which is identical on both",
+        "diff": {"align": (8, 4)},
+    },
+    "gt3media::Mp4AudioReader": {
+        "why": "PC-only Media Foundation reader state (int64_t skipTo_), in memory only",
+        "diff": {"sizeof": (24, 20), "align": (8, 4), "moved": {-4: ("skipTo_",)}},
+    },
+    "spu2::AdsListTrack": {
+        "why": "PC-only ads.txt track (int64_t, double, std::string), parsed from text, in memory "
+               "only",
+        "diff": {"sizeof": (512, 508), "align": (8, 4)},
+    },
+    "PcTween": {
+        "why": "PC-only frame-interpolation slot (double), in memory only",
+        "diff": {"align": (8, 4)},
+    },
+    "(anonymous namespace)::Still [src/game/app/pc_still.cpp]": {
+        "why": "PC-only still picture slot (uint64_t tex0, std::vector), in memory only",
+        "diff": {"sizeof": (64, 60), "align": (8, 4), "moved": {-4: ("aspect", "pixels", "tex0")}},
+    },
+    "(anonymous namespace)::Decode [src/game/app/pc_still.cpp]": {
+        "why": "PC-only PNG decode job (double pixelAspect), in memory only",
+        "diff": {"sizeof": (40, 36), "align": (8, 4)},
+    },
+    "(anonymous namespace)::Mp3Bgm [src/engine/pdi/T521_pdibgm.cpp]": {
+        "why": "PC-only MP3 BGM state: wchar_t path[1024] (2 bytes on Windows, 4 on Linux), "
+               "Mp4AudioReader, std::vector; in memory only",
+        "diff": {"sizeof": (2088, 4132),
+                 "align": (8, 4),
+                 "moved": {-4: ("path",), 2044: ("pcm", "pos")}},
+    },
+    "(unnamed at src/game/app/pc_debugcam.cpp:46:8)": {
+        "why": "PC-only debug camera listener state s_listen (double at), in memory only",
+        "diff": {"align": (8, 4)},
+    },
+    "(unnamed at src/game/app/pc_debugcam.cpp:59:8)": {
+        "why": "PC-only debug camera state s (double last), in memory only",
+        "diff": {"sizeof": (152, 148),
+                 "align": (8, 4),
+                 "moved": {-4: ("groundEye", "groundY", "height", "last", "onGround")}},
+    },
 }
 
 
@@ -320,6 +453,64 @@ def describe(name, w, l):
     return out
 
 
+def label(path):
+    return ".".join(k[1] or k[0] for k in path)
+
+
+def move(a, b):
+    """How one entry moved from the Windows side (a) to the Linux side (b):
+    the Linux offset minus the Windows one, in bytes, and the bit ranges of a
+    bitfield."""
+    if a is None:
+        return "linux only"
+    if b is None:
+        return "win only"
+    if a[1] or b[1]:
+        bits = lambda x: f"{x[1][0]}-{x[1][1]}" if x[1] else "-"
+        return f"{b[0] - a[0]:+d} bits {bits(a)}/{bits(b)}"
+    return b[0] - a[0]
+
+
+def difference(w, l):
+    """What differs in one record: sizeof and align as (win, linux) when they
+    differ, and the entries that moved, grouped by how they moved.  None when
+    a side has more than one variant (never an accepted difference)."""
+    if len(w) != 1 or len(l) != 1:
+        return None
+    (wl, (_, wents)), (ll, (_, lents)) = next(iter(w.items())), next(iter(l.items()))
+    d = {}
+    if wl[0] != ll[0]:
+        d["sizeof"] = (wl[0], ll[0])
+    if wl[1] != ll[1]:
+        d["align"] = (wl[1], ll[1])
+    wm = {p: (o, b) for o, b, p, _ in wents}
+    lm = {p: (o, b) for o, b, p, _ in lents}
+    moved = {}
+    for p in list(wm) + [p for p in lm if p not in wm]:
+        a, c = wm.get(p), lm.get(p)
+        if a != c:
+            moved.setdefault(move(a, c), []).append(label(p))
+    if moved:
+        d["moved"] = {k: tuple(sorted(v)) for k, v in sorted(moved.items(), key=lambda kv: str(kv[0]))}
+    return d
+
+
+def mismatch(want, got):
+    """Lines telling how a record's difference departs from the reviewed one."""
+    if got is None:
+        return ["    more than one layout variant on a side"]
+    out = []
+    for k in ("sizeof", "align"):
+        if want.get(k) != got.get(k):
+            out.append(f"    {k} (win, linux): reviewed {want.get(k, 'equal')}, now {got.get(k, 'equal')}")
+    wmv = {lab: k for k, labs in want.get("moved", {}).items() for lab in labs}
+    gmv = {lab: k for k, labs in got.get("moved", {}).items() for lab in labs}
+    for lab in list(gmv) + [x for x in wmv if x not in gmv]:
+        if wmv.get(lab) != gmv.get(lab):
+            out.append(f"    {lab}: reviewed {wmv.get(lab, 'not moved')!r}, now {gmv.get(lab, 'not moved')!r}")
+    return out
+
+
 def perturb(recs, name):
     if name not in recs:
         sys.exit(f"--perturb: no record {name} on the Linux side")
@@ -346,6 +537,8 @@ def main():
     ap.add_argument("--linux-flag", action="append", default=[], help="extra Linux compile flag (control runs)")
     ap.add_argument("--perturb", metavar="RECORD", help="shift RECORD's last member on the Linux side (control)")
     ap.add_argument("--reuse", action="store_true", help="compare the dumps already under --out")
+    ap.add_argument("--signature", action="store_true",
+                    help="print the difference of every differing record, as EXCEPTIONS records it")
     ap.add_argument("--dump-linux-only", action="store_true", help=argparse.SUPPRESS)
     args = ap.parse_args()
     args.out = args.out or os.path.join(args.linux_build, "layout_probe")
@@ -380,7 +573,15 @@ def main():
     common = sorted(set(w) & set(l))
     equal, hit, bad = [], [], []
     for n in common:
-        (equal if set(w[n]) == set(l[n]) else hit if n in EXCEPTIONS else bad).append(n)
+        if set(w[n]) == set(l[n]):
+            equal.append(n)
+        elif n in EXCEPTIONS and difference(w[n], l[n]) == EXCEPTIONS[n]["diff"]:
+            hit.append(n)
+        else:
+            bad.append(n)
+    if args.signature:
+        for n in hit + bad:
+            print(f"{n!r}: {difference(w[n], l[n])!r}")
     if args.linux_flag or args.perturb:
         say(f"CONTROL RUN: linux flags {args.linux_flag or '-'}, perturbed {args.perturb or '-'}")
     say(f"records: win {len(w)}, linux {len(l)}, compared (on both sides) {len(common)}, "
@@ -401,7 +602,7 @@ def main():
     say()
     say("Accepted exceptions (reviewed, see EXCEPTIONS in tools/layout_probe/compare.py):")
     for n in hit:
-        say(f"  {n}: {EXCEPTIONS[n]}")
+        say(f"  {n}: {EXCEPTIONS[n]['why']}")
         for d in describe(n, w[n], l[n])[:-1]:
             say("  " + d)
     stale = [n for n in EXCEPTIONS if n not in hit]
@@ -412,6 +613,10 @@ def main():
     for n in bad:
         for d in describe(n, w[n], l[n]):
             say(d)
+        if n in EXCEPTIONS:
+            say("    in EXCEPTIONS, but not with the reviewed difference:")
+            for d in mismatch(EXCEPTIONS[n]["diff"], difference(w[n], l[n])):
+                say("  " + d)
     if bad:
         status = max(status, 1)
     if not common:
