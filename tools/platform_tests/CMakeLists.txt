@@ -1,10 +1,13 @@
 # Tests of the POSIX side of the platform layer (src/platform/os), built on
-# their own, outside the game's build:
+# their own, outside the game's build. From the repository root:
 #
 #   cmake -S tools/platform_tests -B build-platform-tests -G Ninja \
-#         -DCMAKE_TOOLCHAIN_FILE=cmake/toolchains/linux-i686.cmake
+#         -DCMAKE_TOOLCHAIN_FILE="$PWD"/cmake/toolchains/linux-i686.cmake
 #   cmake --build build-platform-tests
 #   ctest --test-dir build-platform-tests --output-on-failure
+#
+# The toolchain path must be absolute: CMake resolves a relative one against
+# the build and source directories, not the directory it was started from.
 cmake_minimum_required(VERSION 3.20)
 project(gt3_platform_tests CXX)
 
