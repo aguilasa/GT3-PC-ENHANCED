@@ -547,12 +547,19 @@ int run_keys(const char *ini, int seconds, bool freeF2, const std::set<int> &exp
     return bad ? 1 : 0;
 }
 
-void measure(const char *what)
+/* The client size measured, and the bounds of the window's display. */
+struct Measured {
+    int clientW = 0, clientH = 0;
+    int displayW = 0, displayH = 0;
+};
+
+Measured measure(const char *what)
 {
     /* (SDL's window calls on its main thread, as the window's own) */
     struct M {
         const char *what;
-    } m = {what};
+        Measured got;
+    } m = {what, {}};
     SDL_RunOnMainThread(
         [](void *p) {
             SDL_Window *win = (SDL_Window *)window::handle();
@@ -565,6 +572,9 @@ void measure(const char *what)
             const SDL_DisplayID d = SDL_GetDisplayForWindow(win);
             const SDL_DisplayMode *cur = SDL_GetCurrentDisplayMode(d);
             const SDL_DisplayMode *desk = SDL_GetDesktopDisplayMode(d);
+            SDL_Rect bounds = {};
+            SDL_GetDisplayBounds(d, &bounds);
+            static_cast<M *>(p)->got = {cw, ch, bounds.w, bounds.h};
             char fms[48] = "desktop";
             if (fm != nullptr)
                 snprintf(fms, sizeof fms, "%dx%d@%.0f", fm->w, fm->h, fm->refresh_rate);
@@ -576,6 +586,7 @@ void measure(const char *what)
             fflush(stdout);
         },
         &m, true);
+    return m.got;
 }
 
 /* ---- the controllers on the window's loop ---------------------------------- */
@@ -772,7 +783,15 @@ int run_modes(int fw, int fh)
     std::thread gpu([&] {
         /* as the GPU module: from another thread */
         SDL_Delay(holdMs);
-        measure("windowed (created)");
+        /* The size each mode gives the client: the window's 640x480 windowed,
+         * the display's bounds borderless and fullscreen (with an exclusive
+         * mode the display's bounds are that mode's). */
+        auto check_size = [](const char *what, const Measured &got, int w, int h) {
+            if (got.clientW != w || got.clientH != h)
+                fprintf(stderr, "%s: client %dx%d, expected %dx%d\n", what, got.clientW, got.clientH, w, h);
+            CHECK(got.clientW == w && got.clientH == h);
+        };
+        check_size("windowed (created)", measure("windowed (created)"), 640, 480);
         const settings::DisplayMode order[] = {settings::DisplayMode::borderless, settings::DisplayMode::fullscreen,
                                                settings::DisplayMode::windowed};
         for (settings::DisplayMode m : order) {
@@ -780,8 +799,12 @@ int run_modes(int fw, int fh)
             SDL_Delay(holdMs);
             char what[32];
             snprintf(what, sizeof what, "%s (applied)", settings::mode_name(m));
-            measure(what);
+            const Measured got = measure(what);
             CHECK(window::mode() == m);
+            if (m == settings::DisplayMode::windowed)
+                check_size(what, got, 640, 480);
+            else
+                check_size(what, got, got.displayW, got.displayH);
         }
         SDL_Event quit = {};
         quit.type = SDL_EVENT_QUIT;
