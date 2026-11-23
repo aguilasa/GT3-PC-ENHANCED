@@ -14,8 +14,9 @@
  * at any time; the controllers work while the window is in the background,
  * as in PCSX2.  Off Windows SDL3 is linked in and runs on the main thread
  * (the window's): the window's loop hands the plug / unplug events to
- * sdl_event, and the thread only reads the open devices' state.  platform/pad_pc.cpp maps the raw state to libpad's answers
- * and platform/wheel.cpp the wheels' to the USB wheel driver's, both through
+ * sdl_event, and the thread only reads the open devices' state.
+ * platform/pad_pc.cpp maps the raw state to libpad's answers and
+ * platform/wheel.cpp the wheels' to the USB wheel driver's, both through
  * the mappings of platform/input_map.h.
  *
  * The Guide button (PS / Xbox / Home) of any controller is the menus': a
