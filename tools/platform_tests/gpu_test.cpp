@@ -388,7 +388,11 @@ int main(int argc, char **argv)
         fprintf(stderr, "usage: gpu_test frames [N] [--vsync N] [--hold-ms MS] | modes [WxH] [--hold-ms MS]\n");
         return 2;
     }
-    if (getenv("DISPLAY") == nullptr && getenv("WAYLAND_DISPLAY") == nullptr) {
+    const auto unset = [](const char *name) {
+        const char *v = getenv(name);
+        return v == nullptr || *v == '\0';
+    };
+    if (unset("DISPLAY") && unset("WAYLAND_DISPLAY")) {
         printf("no display: skipped\n");
         return 77;
     }
