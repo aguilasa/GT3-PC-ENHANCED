@@ -7,10 +7,12 @@
 # libraries with the project's compiler: only what an .mp4 (H.264, AAC or
 # MP3 audio) and an .mp3 need, no GPL or non-free part, nothing detected
 # from the system (no shared library of FFmpeg's own or its dependencies).
-# The x86 assembly needs nasm; FFmpeg's 32-bit x86 assembly (nasm's and
-# inline) is not position-independent, so the programs (PIEs) link with text
-# relocations (DT_TEXTREL, the linker warns): GT3PC_FFMPEG_ASM=OFF builds
-# FFmpeg without it (plain C, about half the decoding speed).  Its licence
+# FFmpeg's 32-bit x86 assembly (nasm's and inline) is not
+# position-independent, so the programs (PIEs) would link with text
+# relocations (DT_TEXTREL): by default FFmpeg is built without it
+# (--disable-asm, plain C, about half the decoding speed).
+# GT3PC_FFMPEG_ASM=ON keeps it (needs nasm) and accepts the text
+# relocations.  Its licence
 # (LICENSE.md, COPYING.LGPLv2.1) is copied next to the programs that link it
 # (gt3pc_ffmpeg_licence).
 #
@@ -33,7 +35,7 @@ set(cflags "${CMAKE_C_FLAGS} -msse2 -mfpmath=sse")
 string(STRIP "${cflags}" cflags)
 set(ldflags "${CMAKE_EXE_LINKER_FLAGS}")
 string(STRIP "${ldflags}" ldflags)
-option(GT3PC_FFMPEG_ASM "FFmpeg with its x86 assembly (text relocations in the PIEs)" ON)
+option(GT3PC_FFMPEG_ASM "FFmpeg with its x86 assembly (text relocations in the PIEs)" OFF)
 set(asm)
 if(NOT GT3PC_FFMPEG_ASM)
     set(asm --disable-asm)
