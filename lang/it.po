@@ -1342,6 +1342,10 @@ msgid "%s: Media Foundation does not decode it"
 msgstr "%s: Media Foundation non lo decodifica"
 
 #: src/launcher/music.cpp
+msgid "%s: FFmpeg does not decode it"
+msgstr "%s: FFmpeg non lo decodifica"
+
+#: src/launcher/music.cpp
 msgid "%s: no samples could be read"
 msgstr "%s: impossibile leggere campioni"
 

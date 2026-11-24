@@ -99,7 +99,8 @@ spu2::AdsListProbe prober(const std::wstring &data);
 /* The samples of bgm\<file> (or its .wav / .ads twin), or of the file at a
  * full path, as one channel (the
  * channels' mean) at the file's rate, for the beat markers (beats.h): a
- * .wav, an .ads, an .mp3 (Media Foundation, as the game).  Any thread;
+ * .wav, an .ads, an .mp3 (as the game: Media Foundation on Windows, FFmpeg
+ * elsewhere).  Any thread;
  * false with the reason. */
 bool song_samples(const std::wstring &data, const std::string &file, std::vector<float> *mono, int *rate,
                   std::wstring *why);

@@ -513,7 +513,11 @@ bool song_samples(const std::wstring &data, const std::string &file, std::vector
         gt3media::MfScope mf;
         gt3media::Mp4AudioReader reader;
         if (!mf.ok() || !reader.open(path.c_str())) {
+#ifdef _WIN32
             *why = trf(L"%s: Media Foundation does not decode it", shown_file(found).c_str());
+#else
+            *why = trf(L"%s: FFmpeg does not decode it", shown_file(found).c_str());
+#endif
             return false;
         }
         const int ch = reader.channels();

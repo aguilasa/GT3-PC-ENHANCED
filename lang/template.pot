@@ -1323,6 +1323,10 @@ msgid "%s: Media Foundation does not decode it"
 msgstr ""
 
 #: src/launcher/music.cpp
+msgid "%s: FFmpeg does not decode it"
+msgstr ""
+
+#: src/launcher/music.cpp
 msgid "%s: no samples could be read"
 msgstr ""
 
