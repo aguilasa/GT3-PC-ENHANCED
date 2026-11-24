@@ -9,9 +9,11 @@
 enum { PACKET_BUFFER_SIZE = 0x1000000 };
 
 /* The two buffers: file-local (.bss, emitted at the end of the unit in
- * this order). */
-static u8 g_00353700[PACKET_BUFFER_SIZE];   /* 0x00353700 buf[0] */
-static u8 g_003F3700[PACKET_BUFFER_SIZE];   /* 0x003F3700 buf[1] */
+ * this order).  PC: 16-byte aligned, as the PS2's quadword packets need
+ * (the game stores whole quadwords into them; a u8 array is otherwise
+ * only byte aligned off Windows). */
+alignas(16) static u8 g_00353700[PACKET_BUFFER_SIZE];   /* 0x00353700 buf[0] */
+alignas(16) static u8 g_003F3700[PACKET_BUFFER_SIZE];   /* 0x003F3700 buf[1] */
 
 // FUNC 0x00101290 PacketBuffers::PacketBuffers
 PacketBuffers::PacketBuffers()

@@ -1,6 +1,13 @@
 cmake_minimum_required(VERSION 3.25)
 project(gt3pc LANGUAGES C CXX)
 
+# Off Windows a single-config generator with no build type compiles without
+# optimisation; build the same configuration as build.cmd does on Windows.
+if(NOT MSVC AND NOT CMAKE_CONFIGURATION_TYPES AND NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE RelWithDebInfo CACHE STRING "Build type (Debug, Release, RelWithDebInfo, MinSizeRel)" FORCE)
+    message(STATUS "No CMAKE_BUILD_TYPE given: using RelWithDebInfo")
+endif()
+
 # 32-bit only: the game's data files carry 32-bit pointers that the game
 # relocates in place (models, textures, menus, sound tables).
 if(NOT CMAKE_SIZEOF_VOID_P EQUAL 4)
@@ -22,7 +29,9 @@ if(MSVC)
     add_compile_options(/utf-8 /W3 /wd4244 /wd4267 /wd4305 /wd4996)
 else()
     # GCC / Clang (cmake/toolchains/linux-i686.cmake): UTF-8 sources, as /utf-8.
-    add_compile_options(-finput-charset=UTF-8)
+    # No type-based alias analysis, as clang-cl and MSVC: the game's code reads
+    # and writes the same memory through different types (packets, quadwords).
+    add_compile_options(-finput-charset=UTF-8 -fno-strict-aliasing)
 endif()
 
 set(GT3PC_ROOT ${CMAKE_CURRENT_SOURCE_DIR})

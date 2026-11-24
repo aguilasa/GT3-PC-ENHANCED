@@ -4,6 +4,9 @@
 #   cmake -S . -B build-linux -G Ninja \
 #         -DCMAKE_TOOLCHAIN_FILE=cmake/toolchains/linux-i686.cmake
 #
+# With no -DCMAKE_BUILD_TYPE the build is RelWithDebInfo (CMakeLists.txt),
+# as build.cmd builds on Windows; -DCMAKE_BUILD_TYPE=Debug for an unoptimised one.
+#
 # The compiler defaults to Clang; GCC (or another Clang) is chosen on the
 # command line:
 #
