@@ -635,11 +635,11 @@ void begin_frame(uint64_t frame)
         const char *e = getenv("GT3PC_PGL_CAPTURE");
         g_envFrame = (e != nullptr && atoll(e) > 0) ? atoll(e) : -1;
         if (g_envFrame > 0)
-            pclog::write("pgl: GT3PC_PGL_CAPTURE=%lld: frame %lld will be captured (capture\\frame_%lld\\)",
+            pclog::write("pgl: GT3PC_PGL_CAPTURE=%lld: frame %lld will be captured (capture" PGL_PATH_SEP "frame_%lld" PGL_PATH_SEP ")",
                          (long long)g_envFrame, (long long)g_envFrame, (long long)g_envFrame);
         const char *s = getenv("GT3PC_PGL_CAPTURE_STATS");
         g_statsOn = !(s != nullptr && strcmp(s, "0") == 0);
-        pclog::write("pgl: the FrameCapture hotkey (F11) records the next frame in full (capture\\frame_N\\ next to"
+        pclog::write("pgl: the FrameCapture hotkey (F11) records the next frame in full (capture" PGL_PATH_SEP "frame_N" PGL_PATH_SEP " next to"
                      " the executable%s)", g_statsOn ? "" : "; GT3PC_PGL_CAPTURE_STATS=0: timestamps alone");
     }
     poll();
