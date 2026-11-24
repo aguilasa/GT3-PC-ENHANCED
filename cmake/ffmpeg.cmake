@@ -51,6 +51,15 @@ set(byproducts)
 foreach(l ${GT3PC_FFMPEG_LIBS})
     list(APPEND byproducts ${GT3PC_FFMPEG_PREFIX}/lib/lib${l}.a)
 endforeach()
+# The install step writes them: declared there, Ninja relinks the programs
+# in the same build that rebuilds FFmpeg (a build step's byproducts are
+# restated before make install replaces them).  CMake before 3.26 has no
+# INSTALL_BYPRODUCTS.
+if(CMAKE_VERSION VERSION_LESS 3.26)
+    set(byproducts_kw BUILD_BYPRODUCTS)
+else()
+    set(byproducts_kw INSTALL_BYPRODUCTS)
+endif()
 
 ExternalProject_Add(gt3_ffmpeg_build
     URL https://ffmpeg.org/releases/ffmpeg-${GT3PC_FFMPEG_VERSION}.tar.xz
@@ -79,7 +88,7 @@ ExternalProject_Add(gt3_ffmpeg_build
         ${asm}
     BUILD_COMMAND make -j${jobs}
     INSTALL_COMMAND make install
-    BUILD_BYPRODUCTS ${byproducts}
+    ${byproducts_kw} ${byproducts}
     LOG_CONFIGURE ON LOG_BUILD ON LOG_INSTALL ON LOG_OUTPUT_ON_FAILURE ON
 )
 
