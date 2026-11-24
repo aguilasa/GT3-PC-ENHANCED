@@ -683,24 +683,31 @@ Result unpack(const volume::Reader &read, uint64_t volume_size, const std::wstri
         *message = trf(L"The installed game files in %s could not be checked. Install again.", data.c_str());
         return Result::failed;
     }
-    *message = trf(L"Installed %d game files (%s) in %s.", (int)files.size(), util::format_size(total).c_str(),
-                   data.c_str());
+    std::wstring notes;
     if (flatCourses)
-        *message += L" " + trf(L"Its courses are in courses\\%s (the unified structure).", util::widen(region).c_str());
+        notes += L" " + trf(L"Its courses are in courses\\%s (the unified structure).", util::widen(region).c_str());
     if (!musicNote.empty())
-        *message += L" " + musicNote;
+        notes += L" " + musicNote;
     if (!confNote.empty())
-        *message += L" " + confNote;
+        notes += L" " + confNote;
     if (!dbNote.empty())
-        *message += L" " + dbNote;
+        notes += L" " + dbNote;
     if (!stillNote.empty())
-        *message += L" " + stillNote;
+        notes += L" " + stillNote;
     if (!packNote.empty())
-        *message += L" " + packNote;
+        notes += L" " + packNote;
     if (demos != 0)
-        *message += L" " + trf(L"%d demo replays (the licence tests', the arcade time trials') written over the "
-                               L"disc's.",
-                               demos);
+        notes += L" " + trf(L"%d demo replays (the licence tests', the arcade time trials') written over the "
+                            L"disc's.",
+                            demos);
+#ifndef _WIN32
+    /* The notes name files inside the data folder with Windows' separator
+       (the texts are the translations' too): shown with the native one. */
+    std::replace(notes.begin(), notes.end(), L'\\', L'/');
+#endif
+    *message = trf(L"Installed %d game files (%s) in %s.", (int)files.size(), util::format_size(total).c_str(),
+                   data.c_str()) +
+               notes;
     return Result::ok;
 }
 

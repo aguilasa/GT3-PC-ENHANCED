@@ -996,15 +996,15 @@ msgid "The installed game files in %s could not be checked. Install again."
 msgstr ""
 
 #: src/launcher/install.cpp
-msgid "Installed %d game files (%s) in %s."
-msgstr ""
-
-#: src/launcher/install.cpp
 msgid "Its courses are in courses\\%s (the unified structure)."
 msgstr ""
 
 #: src/launcher/install.cpp
 msgid "%d demo replays (the licence tests', the arcade time trials') written over the disc's."
+msgstr ""
+
+#: src/launcher/install.cpp
+msgid "Installed %d game files (%s) in %s."
 msgstr ""
 
 #: src/launcher/install.cpp

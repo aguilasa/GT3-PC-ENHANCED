@@ -1013,16 +1013,16 @@ msgid "The installed game files in %s could not be checked. Install again."
 msgstr "Die installierten Spieldateien in %s konnten nicht geprüft werden. Erneut installieren."
 
 #: src/launcher/install.cpp
-msgid "Installed %d game files (%s) in %s."
-msgstr "%d Spieldateien (%s) in %s installiert."
-
-#: src/launcher/install.cpp
 msgid "Its courses are in courses\\%s (the unified structure)."
 msgstr "Die Strecken liegen in courses\\%s (die einheitliche Struktur)."
 
 #: src/launcher/install.cpp
 msgid "%d demo replays (the licence tests', the arcade time trials') written over the disc's."
 msgstr "%d Demo-Wiederholungen (der Lizenzprüfungen, der Arcade-Zeitfahren) über die der Disc geschrieben."
+
+#: src/launcher/install.cpp
+msgid "Installed %d game files (%s) in %s."
+msgstr "%d Spieldateien (%s) in %s installiert."
 
 #: src/launcher/install.cpp
 msgid "The game files in data were moved to %s (a data folder per version)."
