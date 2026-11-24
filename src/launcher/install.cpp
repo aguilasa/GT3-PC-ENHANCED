@@ -15,7 +15,14 @@
 #include "volume.h"
 #include "platform/ui_text.h"  /* PC (2026-11-16): the interface's languages */
 
+#ifdef _WIN32
 #include <windows.h>
+#else
+#include "win32_posix.h"
+
+/* the demo replays built in (cmake/demos.cmake) */
+extern "C" const unsigned char *gt3pc_demo_file(size_t index, const char **name, size_t *size);
+#endif
 
 #include <string.h>
 
@@ -324,13 +331,45 @@ std::wstring full_folder(const std::wstring &folder_in)
 
 /* The demo replays of the licence tests and the arcade time trials (this
  * tree's demo\: resources of this type named as the files;
- * src/launcher/CMakeLists.txt). */
+ * src/launcher/CMakeLists.txt.  Off Windows: byte arrays of a generated
+ * source, cmake/demos.cmake). */
+struct Demo {
+    std::wstring name;
+    const void *data;                       /* (null: missing) */
+    DWORD size;
+};
+
+#ifdef _WIN32
 constexpr const wchar_t *kDemoResource = L"GT3DEMO";
 
 BOOL CALLBACK list_demo(HMODULE, LPCWSTR, LPWSTR name, LONG_PTR names)
 {
     reinterpret_cast<std::vector<std::wstring> *>(names)->push_back(name);
     return TRUE;
+}
+#endif
+
+std::vector<Demo> launcher_demos()
+{
+    std::vector<Demo> demos;
+#ifdef _WIN32
+    HMODULE inst = GetModuleHandleW(nullptr);
+    std::vector<std::wstring> names;
+    EnumResourceNamesW(inst, kDemoResource, list_demo, reinterpret_cast<LONG_PTR>(&names));
+    for (const std::wstring &name : names) {
+        HRSRC r = FindResourceW(inst, name.c_str(), kDemoResource);
+        HGLOBAL res = r ? LoadResource(inst, r) : nullptr;
+        const void *p = res ? LockResource(res) : nullptr;
+        const DWORD size = r ? SizeofResource(inst, r) : 0;
+        demos.push_back({name, p, size});
+    }
+#else
+    const char *name = nullptr;
+    size_t size = 0;
+    for (size_t i = 0; const unsigned char *p = gt3pc_demo_file(i, &name, &size); i++)
+        demos.push_back({util::widen(name), p, (DWORD)size});
+#endif
+    return demos;
 }
 
 /* Reads the whole file `path` into `out` (false when it cannot be, or is
@@ -353,21 +392,18 @@ bool read_small_file(const std::wstring &path, size_t max, std::vector<uint8_t> 
 bool write_demos(const std::wstring &data, bool changed, int *count, std::wstring *message,
                  const std::vector<std::wstring> *discFiles = nullptr)
 {
-    HMODULE inst = GetModuleHandleW(nullptr);
-    std::vector<std::wstring> names;
-    EnumResourceNamesW(inst, kDemoResource, list_demo, reinterpret_cast<LONG_PTR>(&names));
+    const std::vector<Demo> demos = launcher_demos();
     const std::wstring folder = util::with_slash(data) + L"demo";
-    if (!names.empty() && !util::make_folders(folder)) {
+    if (!demos.empty() && !util::make_folders(folder)) {
         *message = trf(L"The folder %s could not be created: %s.", folder.c_str(),
                        util::system_error_text(GetLastError()).c_str());
         return false;
     }
     int written = 0;
-    for (const std::wstring &name : names) {
-        HRSRC r = FindResourceW(inst, name.c_str(), kDemoResource);
-        HGLOBAL res = r ? LoadResource(inst, r) : nullptr;
-        const void *p = res ? LockResource(res) : nullptr;
-        const DWORD size = r ? SizeofResource(inst, r) : 0;
+    for (const Demo &demo : demos) {
+        const std::wstring &name = demo.name;
+        const void *p = demo.data;
+        const DWORD size = demo.size;
         if (p == nullptr || size == 0) {
             *message = trf(L"The demo replay %s is missing from the launcher.", name.c_str());
             return false;
@@ -411,7 +447,7 @@ bool write_demos(const std::wstring &data, bool changed, int *count, std::wstrin
         if (any)
             written++;
     }
-    *count = changed ? written : (int)names.size();
+    *count = changed ? written : (int)demos.size();
     return true;
 }
 

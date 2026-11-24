@@ -8,7 +8,11 @@
 #include "engine/media/native/mp4_movie.h"   /* Mp4AudioReader: an .mp3's samples */
 #include "engine/sound/native/bgm_files.h"
 
+#ifdef _WIN32
 #include <windows.h>
+#else
+#include "win32_posix.h"
+#endif
 
 #include <algorithm>
 #include <cmath>
@@ -331,23 +335,34 @@ install::Result convert(const std::wstring &data, install::Listener &listener, s
 
 /* ---- the music files and the list ---- */
 
+/* (the game opens its music files by narrow names: the ANSI code page's on
+ * Windows, UTF-8 elsewhere - platform/os/fs.h's native text) */
 bool ansi(const std::wstring &w, std::string *out)
 {
+#ifdef _WIN32
     BOOL lossy = FALSE;
     const int n = WideCharToMultiByte(CP_ACP, WC_NO_BEST_FIT_CHARS, w.c_str(), (int)w.size(), nullptr, 0, "?", &lossy);
     out->assign((size_t)std::max(n, 0), '\0');
     if (n > 0)
         WideCharToMultiByte(CP_ACP, WC_NO_BEST_FIT_CHARS, w.c_str(), (int)w.size(), &(*out)[0], n, "?", &lossy);
     return !lossy;
+#else
+    *out = util::narrow(w);
+    return true;
+#endif
 }
 
 std::wstring from_ansi(const std::string &s)
 {
+#ifdef _WIN32
     const int n = MultiByteToWideChar(CP_ACP, 0, s.c_str(), (int)s.size(), nullptr, 0);
     std::wstring w((size_t)std::max(n, 0), L'\0');
     if (n > 0)
         MultiByteToWideChar(CP_ACP, 0, s.c_str(), (int)s.size(), &w[0], n);
     return w;
+#else
+    return util::widen(s);
+#endif
 }
 
 std::string list_text(const std::wstring &data)

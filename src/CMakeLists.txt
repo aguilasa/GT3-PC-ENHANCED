@@ -141,8 +141,9 @@ target_compile_definitions(gt3_engine PRIVATE GT3_PC=1)
 if(NOT MSVC)
     # GCC / Clang: the decompiled code (gnu++17), the platform layer (the
     # window, the controllers and the sound output on SDL3, the Direct3D
-    # device on DXVK-native), the movies (no MP4 yet), the renderer and the
-    # game's executable, gt3pc; the launcher is still Windows-only.
+    # device on DXVK-native), the movies (no MP4 yet), the renderer, the
+    # game's executable, gt3pc, and the launcher's command line installer
+    # (launcher/CMakeLists.txt; its window is Windows-only).
     set_target_properties(gt3_game gt3_engine PROPERTIES CXX_EXTENSIONS ON)
     # The interface's languages: tools/lang_sync and the catalogues' generated
     # source (cmake/languages.cmake), built already.
@@ -325,6 +326,7 @@ if(NOT MSVC)
     target_link_libraries(gt3pc PRIVATE gt3_render gt3_media gt3_platform)
     target_link_options(gt3pc PRIVATE LINKER:--no-as-needed)
     gt3pc_languages(gt3pc)
+    add_subdirectory(launcher)
     return()
 endif()
 

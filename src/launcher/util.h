@@ -27,6 +27,11 @@ bool make_folders(const std::wstring &folder);
 std::wstring widen(const std::string &s);
 std::string narrow(const std::wstring &s);
 
+/* `path` in UTF-8 as other libraries (SQLite) open it: Windows: as it is;
+ * elsewhere '/' separators and the parts that exist in their real case
+ * (fs::system_path). */
+std::string system_path(const std::wstring &path);
+
 #ifdef _WIN32
 /* A folder chosen in the shell's folder dialog over the window `owner' (an
  * HWND; "" when cancelled), which opens in `start' (none: where it was last). */

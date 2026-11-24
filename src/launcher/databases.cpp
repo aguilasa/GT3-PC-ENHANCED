@@ -6,7 +6,11 @@
 #include "platform/param_db.h"
 #include "platform/ui_text.h"  /* PC (2026-11-16): the interface's languages */
 
+#ifdef _WIN32
 #include <windows.h>
+#else
+#include "win32_posix.h"
+#endif
 
 #include <cstdint>
 #include <utility>
@@ -153,7 +157,7 @@ bool convert_region(const std::wstring &dir, const std::wstring &region, std::ws
     DeleteFileW(part.c_str());              /* (a stop's leftover) */
     std::string error;
     std::vector<std::string> notes;
-    if (!paramdb::write_region(f, util::narrow(part), &error, &notes)) {
+    if (!paramdb::write_region(f, util::system_path(part), &error, &notes)) {
         *why = util::widen(error);
         return false;
     }
@@ -194,7 +198,7 @@ bool convert_common(const std::wstring &dir, std::vector<std::pair<uint64_t, std
     DeleteFileW(part.c_str());
     std::string error;
     std::vector<std::string> notes;
-    if (!paramdb::write_common(f, labels, util::narrow(part), &error, &notes)) {
+    if (!paramdb::write_common(f, labels, util::system_path(part), &error, &notes)) {
         *why = util::widen(error);
         return false;
     }
@@ -241,7 +245,7 @@ bool convert_texts(const std::wstring &data, std::wstring *note, std::wstring *w
     const std::wstring part = dir + L"realtime.sqlite3.part", done = dir + L"realtime.sqlite3";
     DeleteFileW(part.c_str());
     std::string error;
-    if (!paramdb::write_texts(file, util::narrow(part), &error)) {
+    if (!paramdb::write_texts(file, util::system_path(part), &error)) {
         *why = util::widen(error);
         return false;
     }
@@ -277,7 +281,7 @@ bool name_common(const std::wstring &dir, int *named, std::wstring *why)
         return false;
     }
     std::string error;
-    if (!paramdb::name_race_database(util::narrow(part), named, &error)) {
+    if (!paramdb::name_race_database(util::system_path(part), named, &error)) {
         *why = util::widen(error);
         DeleteFileW(part.c_str());
         return false;

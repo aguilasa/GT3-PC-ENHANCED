@@ -7,7 +7,11 @@
 #include "platform/png_image.h"
 #include "platform/ui_text.h"  /* PC (2026-11-16): the interface's languages */
 
+#ifdef _WIN32
 #include <windows.h>
+#else
+#include "win32_posix.h"
+#endif
 
 #include <cstdint>
 #include <cstring>

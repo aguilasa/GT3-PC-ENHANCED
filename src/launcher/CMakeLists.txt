@@ -13,7 +13,8 @@
 # gs_imgs.cpp, gs_tex*.cpp: the .imgs to PNG folders conversion) and SDL3,
 # delay-loaded as in the game, for the Controls tab's capture of gamepad and
 # wheel inputs (cmake/sdl3.cmake).
-# Included from src/CMakeLists.txt; also buildable on its own:
+# Off Windows only its command line installer is built (below).
+# Included from src/CMakeLists.txt; also buildable on its own (Windows):
 #   tools\msvc.cmd cmake -S src/launcher -B build/launcher -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     cmake_minimum_required(VERSION 3.25)
@@ -25,6 +26,74 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     add_compile_options(/utf-8 /W3)
     set(GT3PC_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/../..)
 endif()
+
+# Off Windows (included from src/CMakeLists.txt's GCC / Clang part): the
+# command line installer only, gt3launcher --install / --unpack
+# (main_posix.cpp; the window stays Windows'), with the install's files and
+# its conversions as below; the Win32 file calls they make on the platform
+# layer's files (win32_posix.cpp over platform/os/fs_posix.cpp), the demo
+# replays as a generated source (cmake/demos.cmake), no MP4 reader yet
+# (mp4_movie_none.cpp: the song manager's .mp3 beat markers, not part of an
+# install), SQLite and LodePNG as the game has them (gt3_sqlite,
+# gt3_lodepng), the platform layer's SSE2 floating point
+# (GT3_PLATFORM_FLOAT_OPTIONS) and no SDL: the interface's text reads the
+# locale's variables itself (GT3PC_UI_TEXT_NO_SDL; the command line stays
+# English).
+if(NOT WIN32)
+    set(GT3PC_DEMOS_CPP ${CMAKE_CURRENT_BINARY_DIR}/demos.cpp)
+    file(GLOB GT3PC_DEMOS LIST_DIRECTORIES false CONFIGURE_DEPENDS ${GT3PC_ROOT}/demo/*)
+    add_custom_command(OUTPUT ${GT3PC_DEMOS_CPP}
+        COMMAND ${CMAKE_COMMAND} -DOUT=${GT3PC_DEMOS_CPP} -DDEMO_DIR=${GT3PC_ROOT}/demo
+                -P ${GT3PC_ROOT}/cmake/demos.cmake
+        DEPENDS ${GT3PC_DEMOS} ${GT3PC_ROOT}/cmake/demos.cmake
+        COMMENT "Embedding demo/*"
+        VERBATIM)
+    add_executable(gt3launcher
+        main_posix.cpp
+        install.cpp
+        disc_files.cpp
+        inflate.cpp
+        iso9660.cpp
+        util.cpp
+        volume.cpp
+        music.cpp
+        gameconf.cpp
+        databases.cpp
+        stills.cpp
+        image_packs.cpp
+        pclog_posix.cpp
+        win32_posix.cpp
+        ${GT3PC_DEMOS_CPP}
+        ${GT3PC_ROOT}/src/platform/os/fs_posix.cpp
+        ${GT3PC_ROOT}/src/platform/os/eucjp.cpp
+        ${GT3PC_ROOT}/src/engine/sound/native/bgm_files.cpp
+        ${GT3PC_ROOT}/src/engine/sound/native/spu2_adpcm.cpp
+        ${GT3PC_ROOT}/src/engine/media/native/mp4_movie_none.cpp
+        ${GT3PC_ROOT}/src/engine/media/native/ipu_image.cpp
+        ${GT3PC_ROOT}/src/engine/media/native/ipu_csc.cpp
+        ${GT3PC_ROOT}/src/engine/media/native/mpeg2_tables.cpp
+        ${GT3PC_ROOT}/src/engine/media/native/mpeg2_idct.cpp
+        ${GT3PC_ROOT}/src/platform/png_image.cpp
+        ${GT3PC_ROOT}/src/engine/pgl/native/gs_imgs.cpp
+        ${GT3PC_ROOT}/src/engine/pgl/native/gs_tex1.cpp
+        ${GT3PC_ROOT}/src/engine/pgl/native/gs_tex_decode.cpp
+        ${GT3PC_ROOT}/src/engine/pgl/native/gs_tex_format.cpp
+        ${GT3PC_ROOT}/src/engine/pgl/native/gs_tex_layout.cpp
+        ${GT3PC_ROOT}/src/engine/pgl/native/gs_tex_space.cpp
+        ${GT3PC_ROOT}/src/platform/gcf_tables.cpp
+        ${GT3PC_ROOT}/src/platform/param_db.cpp
+        ${GT3PC_ROOT}/src/platform/param_schema.cpp
+        ${GT3PC_ROOT}/src/platform/ui_text.cpp
+    )
+    target_include_directories(gt3launcher PRIVATE ${GT3PC_ROOT}/src)
+    target_compile_definitions(gt3launcher PRIVATE GT3PC_UI_TEXT_NO_SDL)
+    target_compile_options(gt3launcher PRIVATE ${GT3_PLATFORM_FLOAT_OPTIONS})
+    find_package(Threads REQUIRED)
+    target_link_libraries(gt3launcher PRIVATE gt3_sqlite gt3_lodepng Threads::Threads)
+    gt3pc_languages(gt3launcher)
+    return()
+endif()
+
 if(NOT TARGET gt3_sdl3)
     include(${GT3PC_ROOT}/cmake/sdl3.cmake)
 endif()
@@ -98,7 +167,8 @@ set_property(SOURCE gt3launcher.rc APPEND PROPERTY OBJECT_DEPENDS
 # refreshes in the installed versions (install.cpp write_demos,
 # refresh_demos): the licence tests' (L*) and the arcade time trials'
 # (AT010001..AT100001), the files of demo\, resources of the type GT3DEMO named
-# as the files.  A file added there reconfigures, a changed one rebuilds.
+# as the files (off Windows: byte arrays, cmake/demos.cmake).  A file added
+# there reconfigures, a changed one rebuilds.
 file(GLOB GT3PC_DEMOS LIST_DIRECTORIES false CONFIGURE_DEPENDS ${GT3PC_ROOT}/demo/*)
 if(GT3PC_DEMOS)
     set(GT3PC_DEMOS_RC "")

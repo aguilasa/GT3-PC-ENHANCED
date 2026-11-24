@@ -6,7 +6,11 @@
 #include "platform/gcf_tables.h"
 #include "platform/ui_text.h"  /* PC (2026-11-16): the interface's languages */
 
+#ifdef _WIN32
 #include <windows.h>
+#else
+#include "win32_posix.h"
+#endif
 
 #include <algorithm>
 #include <vector>
@@ -122,8 +126,8 @@ bool convert_one(const std::wstring &dir, const std::wstring &name, std::wstring
     }
     const std::wstring part = dir + name + L".sqlite3.part", done = dir + name + L".sqlite3";
     DeleteFileW(part.c_str());              /* (a stop's leftover) */
-    if (!gcftables::write_database(config, util::narrow(part), &error) ||
-        (!warnings.empty() && !gcftables::keep_file(gcf, util::narrow(part), &error))) {
+    if (!gcftables::write_database(config, util::system_path(part), &error) ||
+        (!warnings.empty() && !gcftables::keep_file(gcf, util::system_path(part), &error))) {
         *why = util::widen(error);
         DeleteFileW(part.c_str());
         return false;
@@ -188,7 +192,7 @@ bool remove_one(const std::wstring &dir, const std::wstring &name, std::wstring 
     }
     if (!warnings.empty()) {
         const std::wstring part = dbPath + L".part";
-        if (!CopyFileW(dbPath.c_str(), part.c_str(), FALSE) || !gcftables::keep_file(gcf, util::narrow(part), &error) ||
+        if (!CopyFileW(dbPath.c_str(), part.c_str(), FALSE) || !gcftables::keep_file(gcf, util::system_path(part), &error) ||
             !MoveFileExW(part.c_str(), dbPath.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
             *why = trf(L"%s: kept (its sections no table holds could not be put in the database)",
                        (error.empty() ? util::system_error_text(GetLastError()) : util::widen(error)).c_str());

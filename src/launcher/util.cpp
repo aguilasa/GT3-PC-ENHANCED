@@ -81,6 +81,11 @@ std::string narrow(const std::wstring &w)
     return fs::narrow(w);
 }
 
+std::string system_path(const std::wstring &path)
+{
+    return fs::system_path(fs::narrow(path));
+}
+
 #ifdef _WIN32
 std::wstring choose_folder(void *owner, const wchar_t *title, const wchar_t *ok, const std::wstring &start)
 {
