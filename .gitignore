@@ -1,5 +1,6 @@
-# Build output
+# Build output (build-linux/deps: FFmpeg's download and build, cmake/ffmpeg.cmake)
 /build/
+/build-*/
 
 # Downloaded by the build (cmake/sdl3.cmake, cmake/sqlite.cmake)
 /third_party/

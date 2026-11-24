@@ -32,9 +32,9 @@ endif()
 # (main_posix.cpp; the window stays Windows'), with the install's files and
 # its conversions as below; the Win32 file calls they make on the platform
 # layer's files (win32_posix.cpp over platform/os/fs_posix.cpp), the demo
-# replays as a generated source (cmake/demos.cmake), no MP4 reader yet
-# (mp4_movie_none.cpp: the song manager's .mp3 beat markers, not part of an
-# install), SQLite and LodePNG as the game has them (gt3_sqlite,
+# replays as a generated source (cmake/demos.cmake), the MP4 reader on
+# FFmpeg (mp4_movie_ffmpeg.cpp, cmake/ffmpeg.cmake: the song manager's .mp3
+# beat markers), SQLite and LodePNG as the game has them (gt3_sqlite,
 # gt3_lodepng), the platform layer's SSE2 floating point
 # (GT3_PLATFORM_FLOAT_OPTIONS) and no SDL: the interface's text reads the
 # locale's variables itself (GT3PC_UI_TEXT_NO_SDL; the command line stays
@@ -68,7 +68,7 @@ if(NOT WIN32)
         ${GT3PC_ROOT}/src/platform/os/eucjp.cpp
         ${GT3PC_ROOT}/src/engine/sound/native/bgm_files.cpp
         ${GT3PC_ROOT}/src/engine/sound/native/spu2_adpcm.cpp
-        ${GT3PC_ROOT}/src/engine/media/native/mp4_movie_none.cpp
+        ${GT3PC_ROOT}/src/engine/media/native/mp4_movie_ffmpeg.cpp
         ${GT3PC_ROOT}/src/engine/media/native/ipu_image.cpp
         ${GT3PC_ROOT}/src/engine/media/native/ipu_csc.cpp
         ${GT3PC_ROOT}/src/engine/media/native/mpeg2_tables.cpp
@@ -89,8 +89,10 @@ if(NOT WIN32)
     target_compile_definitions(gt3launcher PRIVATE GT3PC_UI_TEXT_NO_SDL)
     target_compile_options(gt3launcher PRIVATE ${GT3_PLATFORM_FLOAT_OPTIONS})
     find_package(Threads REQUIRED)
-    target_link_libraries(gt3launcher PRIVATE gt3_sqlite gt3_lodepng Threads::Threads)
+    include(${GT3PC_ROOT}/cmake/ffmpeg.cmake)
+    target_link_libraries(gt3launcher PRIVATE gt3_sqlite gt3_lodepng gt3_ffmpeg Threads::Threads)
     gt3pc_languages(gt3launcher)
+    gt3pc_ffmpeg_licence(gt3launcher)
     return()
 endif()
 

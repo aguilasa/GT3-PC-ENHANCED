@@ -141,7 +141,7 @@ target_compile_definitions(gt3_engine PRIVATE GT3_PC=1)
 if(NOT MSVC)
     # GCC / Clang: the decompiled code (gnu++17), the platform layer (the
     # window, the controllers and the sound output on SDL3, the Direct3D
-    # device on DXVK-native), the movies (no MP4 yet), the renderer, the
+    # device on DXVK-native), the movies (MP4 on FFmpeg), the renderer, the
     # game's executable, gt3pc, and the launcher's command line installer
     # (launcher/CMakeLists.txt; its window is Windows-only).
     set_target_properties(gt3_game gt3_engine PROPERTIES CXX_EXTENSIONS ON)
@@ -259,17 +259,16 @@ if(NOT MSVC)
     target_link_libraries(gt3_platform PUBLIC gt3_sound_native)
 
     # ---- the movies: the native MPEG-2 / IPU decoder and the movie services;
-    # no MP4 reader yet (mp4_movie_none.cpp: an .mp4 does not open and the
-    # .pss plays) and no movie textures shared between devices (mp4_gpu.cpp:
-    # the CPU's way)
+    # the MP4 reader on FFmpeg, built static in the build tree
+    # (mp4_movie_ffmpeg.cpp, cmake/ffmpeg.cmake), and no movie textures
+    # shared between devices (mp4_gpu.cpp: the CPU's way)
     include(${CMAKE_CURRENT_SOURCE_DIR}/engine/media/native/sources.cmake)
-    set(GT3_MEDIA_POSIX_SOURCES ${GT3_MEDIA_SERVICE_SOURCES})
-    list(REMOVE_ITEM GT3_MEDIA_POSIX_SOURCES ${GT3_MEDIA_NATIVE_DIR}/mp4_movie.cpp)
-    list(APPEND GT3_MEDIA_POSIX_SOURCES ${GT3_MEDIA_NATIVE_DIR}/mp4_movie_none.cpp)
-    add_library(gt3_media STATIC ${GT3_MEDIA_NATIVE_SOURCES} ${GT3_MEDIA_POSIX_SOURCES})
+    include(${GT3PC_ROOT}/cmake/ffmpeg.cmake)
+    add_library(gt3_media STATIC ${GT3_MEDIA_NATIVE_SOURCES} ${GT3_MEDIA_SERVICE_SOURCES})
     target_include_directories(gt3_media PUBLIC ${GT3PC_ROOT}/src)
     target_compile_options(gt3_media PRIVATE ${GT3_PLATFORM_FLOAT_OPTIONS})
     target_link_libraries(gt3_media PUBLIC gt3_platform gt3_sound_native)
+    target_link_libraries(gt3_media PRIVATE gt3_ffmpeg)
 
     # ---- the renderer on DXVK-native (the list of the Windows build's
     # gt3_render below): the vector font on stb_truetype, the replacement
@@ -326,6 +325,7 @@ if(NOT MSVC)
     target_link_libraries(gt3pc PRIVATE gt3_render gt3_media gt3_platform)
     target_link_options(gt3pc PRIVATE LINKER:--no-as-needed)
     gt3pc_languages(gt3pc)
+    gt3pc_ffmpeg_licence(gt3pc)
     add_subdirectory(launcher)
     return()
 endif()
