@@ -18,10 +18,9 @@
 #   docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp \
 #       -v "$PWD:$PWD" -w "$PWD" gt3pc-linux-build scripts/build-linux.sh
 #
-# (podman: the same commands, with "podman" for "docker" and, rootless,
-# --userns=keep-id for --user.)  The network is needed the first time: the
-# sources of SDL3 and DXVK-native (git, checked against their pinned commits)
-# and FFmpeg's release tarball (checked against its SHA-256).
+# The network is needed the first time: the sources of SDL3 and DXVK-native
+# (git, checked against their pinned commits) and FFmpeg's release tarball
+# (checked against its SHA-256).
 #
 # To run the game the host needs only the :i386 runtime libraries (libc6,
 # libstdc++6, libvulkan1, libx11-6, the sound libraries) and a 32-bit Vulkan
