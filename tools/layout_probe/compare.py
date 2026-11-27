@@ -214,10 +214,6 @@ EXCEPTIONS = {
                "BgmStatus, which is identical on both",
         "diff": {"align": (8, 4)},
     },
-    "gt3media::Mp4AudioReader": {
-        "why": "PC-only Media Foundation reader state (int64_t skipTo_), in memory only",
-        "diff": {"sizeof": (24, 20), "align": (8, 4), "moved": {-4: ("skipTo_",)}},
-    },
     "spu2::AdsListTrack": {
         "why": "PC-only ads.txt track (int64_t, double, std::string), parsed from text, in memory "
                "only",
@@ -236,11 +232,13 @@ EXCEPTIONS = {
         "diff": {"sizeof": (40, 36), "align": (8, 4)},
     },
     "(anonymous namespace)::Mp3Bgm [src/engine/pdi/T521_pdibgm.cpp]": {
-        "why": "PC-only MP3 BGM state: wchar_t path[1024] (2 bytes on Windows, 4 on Linux), "
-               "Mp4AudioReader, std::vector; in memory only",
-        "diff": {"sizeof": (2088, 4132),
+        "why": "PC-only MP3 BGM state, a different struct on each side: Media Foundation "
+               "(Mp4AudioReader, wchar_t path[1024], std::vector) on Windows, dr_mp3 (drmp3 "
+               "dec) off Windows; allocated with new, in memory only",
+        "diff": {"sizeof": (2088, 32288),
                  "align": (8, 4),
-                 "moved": {-4: ("path",), 2044: ("pcm", "pos")}},
+                 "moved": {"linux only": ("at", "dec", "opened"),
+                           "win only": ("path", "pcm", "pos", "reader")}},
     },
     "(unnamed at src/game/app/pc_debugcam.cpp:46:8)": {
         "why": "PC-only debug camera listener state s_listen (double at), in memory only",
