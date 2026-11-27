@@ -139,6 +139,9 @@ bool g_debugConsole;
 bool g_debugFileLog;
 bool g_debugSyncLog;
 bool g_debugReplaySync;
+#ifndef _WIN32
+bool g_debugRacingLineLog;                      /* [Debug] RacingLineLog */
+#endif
 std::atomic<bool> g_debugCameraYLook{false};
 std::atomic<bool> g_debugCameraGround{false};
 int g_physicsThreads;                           /* [Debug] PhysicsThreads */
@@ -676,6 +679,12 @@ void load()
         g_debugSyncLog = _stricmp(con, "on") == 0 || strcmp(con, "1") == 0;
         GetPrivateProfileStringA("Debug", "ReplaySync", "off", con, sizeof(con), ini_path().c_str());
         g_debugReplaySync = _stricmp(con, "on") == 0 || strcmp(con, "1") == 0;
+#ifndef _WIN32
+        GetPrivateProfileStringA("Debug", "RacingLineLog", "off", con, sizeof(con), ini_path().c_str());
+        g_debugRacingLineLog = _stricmp(con, "on") == 0 || strcmp(con, "1") == 0;
+        if (g_debugRacingLineLog)
+            pclog::write("settings: the racing line's strip logged (racing line: ...)");
+#endif
         GetPrivateProfileStringA("Debug", "CameraYLook", "off", con, sizeof(con), ini_path().c_str());
         g_debugCameraYLook = _stricmp(con, "on") == 0 || strcmp(con, "1") == 0;
         GetPrivateProfileStringA("Debug", "CameraGround", "off", con, sizeof(con), ini_path().c_str());
@@ -1498,6 +1507,13 @@ bool debug_replay_sync()
 {
     return g_debugReplaySync;
 }
+
+#ifndef _WIN32
+bool debug_racing_line_log()
+{
+    return g_debugRacingLineLog;
+}
+#endif
 
 bool debug_camera_y_look()
 {

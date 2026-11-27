@@ -78,6 +78,9 @@
 #include "game/app/pc_course_scale.h"           /* PC: the course scale (the mirror's far clip) */
 #include "game/app/pc_headcam.h"                /* PC: the cockpit camera's own car (drawCars) */
 #include "game/app/pc_customcam.h"              /* PC: a custom camera's own car (drawCars) */
+#ifndef _WIN32
+#include "game/app/pc_racing_line.h"            /* PC: the racing line on the road (drawView) */
+#endif
 #include "game/app/pc_debugcam.h"               /* PC: the debug camera */
 
 /* GSBufferPair's current / other buffer.  Retail takes the pair's address
@@ -295,6 +298,9 @@ void RacePS2Base::drawView(GSBuffer *buf)
 
     /* the cars: LOD by distance, the tyres' motion blur */
     drawCars(&envmap, -1, 1, 0.0f);
+#ifndef _WIN32
+    pc_racing_line_draw(this, cm);          /* PC: the racing line on the road (game/app/pc_racing_line.h) */
+#endif
 
     /* the rear-view mirror: live race, a camera that shows it, the centre
      * screen of an i.LINK wall (isCenterScreen) */

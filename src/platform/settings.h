@@ -944,6 +944,12 @@ bool debug_file_log();
 bool debug_sync_log();
 /* [Debug] ReplaySync: a replay checked against its race, frame by frame. */
 bool debug_replay_sync();
+#ifndef _WIN32
+/* [Debug] RacingLineLog=off | on (Linux only): on, the racing line's strip
+ * ahead of the car of the view written into the log ("racing line: ...",
+ * game/app/pc_racing_line.h).  Read at start. */
+bool debug_racing_line_log();
+#endif
 /* [Debug] CameraYLook: the debug camera moves forward and back along its
  * look, pitch included (else in the heading's horizontal plane). */
 bool debug_camera_y_look();
