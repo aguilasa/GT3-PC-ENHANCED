@@ -6,10 +6,12 @@
  *   gt3launcher --install <image.iso> [--to <folder>]
  *   gt3launcher --unpack <gt3.vol> [--to <folder>]
  *
- * <folder> defaults to the launcher's folder.  Output goes to the standard
- * output, UTF-8: on a terminal the progress line is redrawn every percent,
- * else a line every 10%.  Ctrl+C (SIGINT) or SIGTERM cancels the install
- * (the temporary folder is deleted).
+ * <folder> defaults to pcrun::user_dir's folder (platform/posix/user_dir.h):
+ * $GT3PC_HOME when it is set, else the launcher's folder, else, when that
+ * folder is read-only, $XDG_DATA_HOME/gt3pc (~/.local/share/gt3pc).  Output
+ * goes to the standard output, UTF-8: on a terminal the progress line is
+ * redrawn every percent, else a line every 10%.  Ctrl+C (SIGINT) or SIGTERM
+ * cancels the install (the temporary folder is deleted).
  *
  * Exit codes (main.cpp's): 0 installed, 1 failed, 2 not a Gran Turismo 3
  * engine disc, 3 cancelled, 4 bad command line - also without arguments: the
@@ -36,8 +38,9 @@ const char kUsageText[] =
     "  gt3launcher --install <image.iso> [--to <folder>]\n"
     "      installs the game files from a Gran Turismo 3 disc image into <folder>/data_US,\n"
     "      data_EU or data_JP (any other Gran Turismo 3 engine disc - GT Concept, a demo -\n"
-    "      is extracted as data only into data_<boot file>), <folder> by default the\n"
-    "      launcher's\n"
+    "      is extracted as data only into data_<boot file>); <folder> by default\n"
+    "      $GT3PC_HOME, else the launcher's folder, else, when that one is read-only,\n"
+    "      $XDG_DATA_HOME/gt3pc (~/.local/share/gt3pc)\n"
     "  gt3launcher --unpack <gt3.vol> [--to <folder>]\n"
     "      the same from the disc's GT3.VOL as a file (as an earlier version installed it;\n"
     "      a CORE.GT3 and SYSTEM.CNF beside it name the release)\n"
