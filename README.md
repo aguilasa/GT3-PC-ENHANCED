@@ -384,7 +384,7 @@ rendering through DXVK-native on Vulkan with SDL3 for the window, input and soun
 There is no launcher window on Linux: the game files are installed from the command line.
 
 ### Prerequisites
-- Build: [Docker](https://docs.docker.com/engine/install/) (or Podman). The build runs in an
+- Build: [Docker](https://docs.docker.com/engine/install/). The build runs in an
   Ubuntu 24.04 container that has the compilers and the 32-bit development libraries,
   made from [scripts/linux-build.Dockerfile](scripts/linux-build.Dockerfile).
   The first build needs the network: it downloads SDL3, DXVK-native and FFmpeg.
@@ -417,7 +417,6 @@ docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp \
 [scripts/build-linux.sh](scripts/build-linux.sh) builds SDL3, DXVK-native and FFmpeg into
 `build-linux/deps`, then the game (`gt3pc`) and the installer (`gt3launcher`) into `build-linux/bin`,
 with the SDL3 and DXVK libraries beside them: that folder runs as it is, and can be moved.
-With Podman, use the same commands with `podman` for `docker` (rootless: `--userns=keep-id` for `--user`).
 
 ### Installing the game files
 From a disc image of Gran Turismo 3 (USA, Europe or Japan):
