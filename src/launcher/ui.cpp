@@ -771,6 +771,20 @@ bool row_shown(const Row &r)
     if (r.option < 0 || r.option >= (int)g.options.size() || g.options[r.option].whenKey == nullptr)
         return true;
     const Option &o = g.options[r.option];
+    /* PC (2026-11-20, user report: "sometimes users can turn on realistic +
+     * clutch mode and the H-shifter UI doesn't appear" - a screenshot with
+     * Realistic + Clutch in the list and no H-shifter row under it): by the
+     * list the key's own row shows, as the user sees it, not gt3pc.ini read
+     * again - the two can differ (a write that did not land, the file changed
+     * by another program meanwhile) and the row followed the file.  The
+     * file's value only for a key without a list here. */
+    for (const Option &w : g.options)
+        if (w.combo != nullptr && w.step <= 0 && !w.color && !w.number && _wcsicmp(w.section, o.section) == 0 &&
+            _wcsicmp(w.key, o.whenKey) == 0) {
+            const int i = (int)SendMessageW(w.combo, CB_GETCURSEL, 0, 0);
+            if (i >= 0 && i < (int)w.choices.size())
+                return _wcsicmp(w.choices[i].value.c_str(), o.whenValue) == 0;
+        }
     wchar_t v[64];
     GetPrivateProfileStringW(o.section, o.whenKey, L"", v, 64, ini_path().c_str());
     return _wcsicmp(v, o.whenValue) == 0;
@@ -804,15 +818,24 @@ void side_layout()
     int y = px(kPanelY) + px(kPanelPad) / 2;
     /* (PC 2026-11-15: the save manager's under the texture manager's) */
     const HWND pairs[3][2] = {{g.modsOpen, g.modsText}, {g.texturesOpen, g.texturesText}, {g.savesOpen, g.savesText}};
+    /* PC (2026-11-20, user report: "adding a mod folder can glitch the
+     * background behind the buttons' text underneath them" - the Textures...
+     * and Saves... buttons' labels left over the texts under them): moved
+     * without their old pixels (a move copies them, and these texts' art
+     * depends on their place: WM_CTLCOLORSTATIC), and the column repainted
+     * with its children - the window clips its children, so invalidating it
+     * alone left the moved buttons and texts as copied.  Seen in the launcher
+     * harness when the mods text went from one line to two and back: 3,076
+     * pixels unlike a full repaint, now none. */
     for (const auto &p : pairs) {
-        SetWindowPos(p[0], nullptr, x, y, w, px(kButtonH), SWP_NOZORDER | SWP_NOACTIVATE);
+        SetWindowPos(p[0], nullptr, x, y, w, px(kButtonH), SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOCOPYBITS);
         y += px(kButtonH) + px(4);
         const int th = wrapped_height(p[1], w);
-        SetWindowPos(p[1], nullptr, x, y, w, th, SWP_NOZORDER | SWP_NOACTIVATE);
+        SetWindowPos(p[1], nullptr, x, y, w, th, SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOCOPYBITS);
         y += th + px(12);
     }
     RECT side = {x, px(kPanelY), x + w, px(kPanelY) + px(kPanelH)};
-    InvalidateRect(g.wnd, &side, TRUE);
+    RedrawWindow(g.wnd, &side, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
 }
 
 /* PC (2026-11-16): the interface's languages run longer than English.  A
@@ -1723,6 +1746,10 @@ void build_options()
     /* Display */
     add(TAB_DISPLAY, tr(L"Vertical sync"), L"Graphics", L"VSync", L"off",
         {{tr(L"Off"), L"off"}, {tr(L"1 frame"), L"1"}, {tr(L"2 frames"), L"2"}, {tr(L"3 frames"), L"3"}});
+    /* PC (2026-11-19, user request): settings.h's GameClockSync (the F2
+     * menu's GAME CLOCK SYNC) */
+    add(TAB_DISPLAY, tr(L"Game clock sync"), L"Display", L"GameClockSync", L"variable",
+        {{tr(L"Variable"), L"variable"}, {tr(L"Static NTSC"), L"ntsc"}});
     /* (the frame cap: its own row of two fields, add_cap_row - PC 2026-11-08,
      * user request; a list of rates before) */
     /* (PC 2026-11-15, user request: "Menu aspect: 16:9 option") */
@@ -1877,6 +1904,9 @@ void build_options()
         {{tr(L"Off"), L"off"}, {tr(L"On"), L"on"}});
     /* PC (2026-11-14): settings.h's buy_not_for_sale (game/app/pc_car_shop.h) */
     add(TAB_GAME, tr(L"Buy cars not for sale"), L"Game", L"BuyNotForSale", L"off",
+        {{tr(L"Off"), L"off"}, {tr(L"On"), L"on"}});
+    /* PC (2026-11-23): settings.h's new_car_assists_off (GameStatus::addCar) */
+    add(TAB_GAME, tr(L"New cars without assists"), L"Game", L"NewCarAssistsOff", L"off",
         {{tr(L"Off"), L"off"}, {tr(L"On"), L"on"}});
     /* (settings.h's kRaceCarsMin .. kRaceCarsMax) */
     add_slider(TAB_GAME, tr(L"Cars in a race"), L"Game", L"RaceCars", L"6", 6, 32, 1, 0, count_text);
@@ -2734,13 +2764,15 @@ void install_done()
 }
 
 /* The Open dialog's filter for a disc image: "PlayStation 2 disc image
- * (*.iso)\0*.iso\0All files (*.*)\0*.*\0" (its descriptions translated). */
+ * (*.iso; *.chd)\0*.iso;*.chd\0All files (*.*)\0*.*\0" (its descriptions
+ * translated).  PC (2026-11-23): a CHD too (chd_image.h; the image is told
+ * by its first bytes: one of another name opens through "All files"). */
 std::wstring disc_image_filter()
 {
     std::wstring f = tr(L"PlayStation 2 disc image");
-    f += L" (*.iso)";
+    f += L" (*.iso; *.chd)";
     f.push_back(L'\0');
-    f += L"*.iso";
+    f += L"*.iso;*.chd";
     f.push_back(L'\0');
     f += tr(L"All files");
     f += L" (*.*)";

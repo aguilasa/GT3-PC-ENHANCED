@@ -34,6 +34,12 @@ float clutch(int player, bool wheel);
  * -1 when H-Shifter N maps nothing. */
 int gate(int player);
 
+/* PC (2026-11-23): one of H-Shifter N's bindings is held now (a gate, the
+ * neutral, the reverse) - whatever the gear shift behavior (the game's
+ * notice that the H-shifter is off, game/app/pc_clutch.h); false when it
+ * maps nothing or a menu has the input.  Leaves gate()'s state alone. */
+bool gate_held(int player);
+
 /* What profile `profile''s Clutch is mapped to, for the notices ("" when
  * none): its slots' labels (input_map::describe), " / " between them. */
 void clutch_text(int profile, char *out, int n);

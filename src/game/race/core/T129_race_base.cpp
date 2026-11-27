@@ -61,8 +61,8 @@ extern RaceBGMBase g_003521D0;              /* 0x003521D0 */
 #include "game/app/pc_course_scale.h"       /* PC: the course scale in the info block */
 #include "game/app/pc_course_pick.h"        /* PC: the laps run (pc_race_laps, in the info block) */
 #include "game/app/pc_car_tuning.h"         /* PC: the car multipliers (in the info block) */
-#include "game/app/pc_rev_cut.h"            /* PC (2026-11-08): the rev limiter (in the info block) */
-#include "game/app/pc_shift.h"              /* PC (2026-11-08): the gear shifts (in the info block) */
+#include "game/app/pc_rev_cut.h"            /* PC (2026-11-08): the rev limiter (in the info block; 2026-11-20: a demo's over) */
+#include "game/app/pc_shift.h"              /* PC (2026-11-08): the gear shifts (in the info block; 2026-11-20: a demo's over) */
 #include "game/app/pc_race_cars.h"          /* PC: the slots of the cars past 8 (in the info block) */
 /* own translation units */
 #include "game/race/core/T125_race_organization.h"    /* RaceOrganization, RaceResult; T484 RaceDataBase / RaceEvent,
@@ -255,6 +255,13 @@ void RaceBase::virtual_8(int replay)
     int count;
     int i;
 
+    /* PC (2026-11-20): a race that is not a replay (a live run, a race playing
+     * by itself) records over a demo file's recording: the race's own rev
+     * limiter and gear shifts again (game/app/pc_rev_cut.h, pc_shift.h) */
+    if (replay != RACE_REPLAY) {
+        pc_rev_cut_demo_end(o);
+        pc_shift_demo_end(o);
+    }
     field_9798 = 0;
     wakeup = 0;
     endCode = 0;

@@ -108,6 +108,8 @@ bool mount(const std::string &image, const std::string &volume, const std::strin
     }
     g_mounted = true;
     pclog::write("disc image: %s", image.c_str());
+    if (!g_image.container().empty())           /* PC (2026-11-23): a CHD's (launcher/chd_image.h) */
+        pclog::write("disc image: a %s", g_image.container().c_str());
     pclog::write("disc image: %s, %llu bytes at sector %u: %u files, %u of them packed%s", name.c_str(),
                  (unsigned long long)g_volume.size, g_volume.extents.empty() ? 0u : g_volume.extents[0].lba,
                  (unsigned)g_files.size(), packed, flat ? (", its courses in courses\\" + region).c_str() : "");

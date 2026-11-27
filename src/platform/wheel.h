@@ -7,8 +7,9 @@
  * the wheel's SDL joystick (platform/gamepad.h), the devices its bindings
  * name (pedals of their own, a shifter...) and the keyboard and mouse.
  * It is connected while its joystick is.  The steering and pedal dead zones
- * apply to the virtual steering (right - left) and pedals.  No force
- * feedback yet: the game's commands are taken and dropped. */
+ * apply to the virtual steering (right - left) and pedals.  PC (2026-11-20):
+ * the game's force feedback (engine/input/usb_pc.cpp decodes its Driving
+ * Force commands) is played on the wheel's own (platform/wheel_ffb.h). */
 #pragma once
 
 namespace wheel {
@@ -28,5 +29,18 @@ bool connected(int port);
  * are connected ([WheelN] Input=wheel, the default); false: with the
  * controller (Input=controller). */
 bool preferred(int port);
+
+/* PC (2026-11-20): the force feedback the game asks of the wheel of `port':
+ * the steering force -1..1, + to the right (sent every tick), the centring
+ * spring (k: the coefficient 0..1, clip: the most force 0..1). */
+void force(int port, float f);
+void spring(int port, bool on, float k, float clip);
+/* PC (2026-11-20): GT3's own Force Feedback option of player `port' (its
+ * Options; GameOptions forceFeedback1p / 2p - off, the race sends no
+ * steering force), as the game last told it (game/app/pc_ffb.h, every tick;
+ * on until then): the settings menu's FORCE FEEDBACK STRENGTH says so.  Any
+ * thread. */
+void set_game_ffb(int port, bool on);
+bool game_ffb(int port);
 
 } // namespace wheel

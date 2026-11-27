@@ -31,6 +31,11 @@ std::mutex g_lock;
  * for every organization: it sets or clears the entry): their
  * PC_SHIFT_RACE_* flags (PC 2026-11-09: the clutch mode, the H-shifters). */
 std::unordered_map<const RaceOrganization *, int> g_races;
+/* PC (2026-11-20): the races playing a demo file's recording (a licence
+ * test's, a time trial's: load_demo_setting) - the flags it recorded (0: the
+ * original) in place of g_races' until a race not a replay starts
+ * (pc_shift_demo_end) */
+std::unordered_map<const RaceOrganization *, int> g_demos;
 /* PC (2026-11-09): the flags of the race last bound from the settings (a
  * live race: RaceInput::read's frames, pc_clutch_live_input) */
 std::atomic<int> g_liveFlags{0};
@@ -77,12 +82,24 @@ constexpr f32 kRadToRpm = 9.5492966f;
 void forget(const RaceOrganization *org)
 {
     g_races.erase(org);
+    g_demos.erase(org);                     /* PC (2026-11-20) */
 }
 
-int race_flags(const RaceOrganization *org)
+/* The race's own flags (the settings', or a saved race's) */
+int own_flags(const RaceOrganization *org)
 {
     auto it = g_races.find(org);
     return it != g_races.end() ? it->second : 0;
+}
+
+/* The flags org's cars run: a demo file's while one plays (PC 2026-11-20),
+ * else the race's own */
+int race_flags(const RaceOrganization *org)
+{
+    auto demo = g_demos.find(org);
+    if (demo != g_demos.end())
+        return demo->second;
+    return own_flags(org);
 }
 
 bool realistic(const RaceOrganization *org)
@@ -254,6 +271,37 @@ void pc_shift_load(RaceOrganization *org, const RaceInfoBlock *blk)
     if (block_version(blk) != kVersion)
         printf("PC: gear shift: the race was saved with version %d of the realistic shifts, it replays with %d: it"
                " may drive otherwise\n", block_version(blk), kVersion);
+}
+
+/* (the flags' name for the log lines) */
+static const char *flags_name(int flags)
+{
+    if (!(flags & PC_SHIFT_RACE_REALISTIC))
+        return "original";
+    if (!(flags & PC_SHIFT_RACE_CLUTCH))
+        return "realistic";
+    return (flags & PC_SHIFT_RACE_HSHIFTER) ? "realistic + clutch, H-shifters" : "realistic + clutch";
+}
+
+void pc_shift_demo(const RaceOrganization *org, const RaceInfoBlock *blk)
+{
+    if (org == NULL || blk == NULL)
+        return;
+    std::lock_guard<std::mutex> lock(g_lock);
+    const int demo = block_flags(blk), own = own_flags(org);
+    g_demos[org] = demo;
+    printf("PC: gear shift: a demo file plays with the %s shifts it was recorded with (the race's own: %s)\n",
+           flags_name(demo), flags_name(own));
+    if (demo != 0 && block_version(blk) != kVersion)
+        printf("PC: gear shift: the demo was recorded with version %d of the realistic shifts, it plays with %d: it"
+               " may drive otherwise\n", block_version(blk), kVersion);
+}
+
+void pc_shift_demo_end(const RaceOrganization *org)
+{
+    std::lock_guard<std::mutex> lock(g_lock);
+    if (g_demos.erase(org) != 0)
+        printf("PC: gear shift: the race's own again (%s)\n", flags_name(own_flags(org)));
 }
 
 void pc_shift_check_ghost(const RaceInfoBlock *blk, const RaceOrganization *org)

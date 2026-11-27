@@ -101,11 +101,32 @@ void log_threads(const char *why);
  * game thread: just the call. */
 void run_outside(void (*fn)(void *), void *arg);
 
-/* Vblank count since start (59.94 Hz). */
+/* Vblank count since start (59.94 Hz; PC 2026-11-19: or the display's,
+ * set_display_clock). */
 uint64_t vblank_count();
-/* now_seconds() of the last vblank (its due time), and the period. */
+/* now_seconds() of the last vblank (its due time), and the period (the
+ * current one: the display's while the vblanks follow it). */
 double   vblank_time();
 double   vblank_period();
+/* PC (2026-11-19): the vblanks follow the display (gpu.cpp's watcher of the
+ * game window's monitor): on, every vblank falls on the display's grid -
+ * displayVblank (a display vblank, now_seconds()) + k x period - plus a
+ * small phase offset (GT3PC_VBLANK_PHASE_MS, default 1 ms after it); off,
+ * the PS2's 59.94 Hz from the last one.  User report (2026-11-19): with
+ * vsync at 60 Hz on a 60 Hz monitor every setting had a saw-tooth or
+ * spikes every several seconds (RTSS's scanline sync too): the game's
+ * 59.94 Hz vblanks drifted through the display's, a frame missed its
+ * vblank each time they lined up wrong and the next caught up two ticks.
+ * The switch moves the next vblank by up to half a period, once. */
+void     set_display_clock(bool on, double period, double displayVblank);
+/* PC (2026-11-19): the vblanks' offset after the display's (seconds, 0 ..
+ * the period): gpu.cpp puts them half a period from where Present returns
+ * (the frames paced by it: game/app/pc_frame.cpp), so the ticks counted at
+ * those returns are one a frame, whatever their jitter.
+ * GT3PC_VBLANK_PHASE_MS fixes it instead. */
+void     set_vblank_phase(double seconds);
+/* PC (2026-11-19): the vblanks follow the display's (set_display_clock on). */
+bool     display_clock_on();
 /* The vblanks due by time t (now_seconds()): the count of the last one at
  * or before t and its time (the last 31 are kept; an older t gives the
  * oldest of them). */

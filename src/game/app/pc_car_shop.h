@@ -36,4 +36,17 @@ int pc_buy_not_for_sale(void);
  * trade's refusal), the flags themselves off. */
 int pc_buy_flags(int shopFlags);
 
+/* PC (2026-11-23, user: "An option to toggle driving assists for new cars
+ * added to the garage ... While the setting is on, cars that get added have
+ * those 2 settings [TCS, ASM] set to 0 / off"; [Game] NewCarAssistsOff, GAME
+ * > EXTRAS > NEW CARS WITHOUT ASSISTS, the launcher's Game > Extras):
+ * GameStatus::addCar (T429) - every car that joins the garage, bought new
+ * or used, won, the debug fill's.  With the setting on the car's two
+ * settings go to the ends the setting page shows as 0: settingASCC 1 (the
+ * ASM slider's least, T082 setting_slider_elec_ascc), settingTCSC the TCS
+ * record's count (its slider is reversed: count + 1 - the level).  The parts
+ * stay fitted: the page can turn them up again. */
+class CarEquipments;
+void pc_new_car_assists(CarEquipments *car);
+
 #endif /* GAME_APP_PC_CAR_SHOP_H */

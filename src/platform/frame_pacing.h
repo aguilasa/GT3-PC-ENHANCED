@@ -1,7 +1,9 @@
 /* frame_pacing.h - the display side of the dynamic frame rate (no Windows
  * headers: the game code includes it; gpu.cpp implements it).
  *
- * The game ticks at 59.94 Hz; on a display that refreshes faster, the race
+ * The game ticks at 59.94 Hz (PC 2026-11-19: on a 59 .. 61 Hz display at its
+ * own vblanks - gpu.cpp times them, scheduler.h set_display_clock); on a
+ * display that refreshes faster, the race
  * draws frames between the ticks (game/app/pc_frame.h).  No vsync (the
  * default): the frames are presented at once, tearing allowed (a variable
  * refresh display follows them), one frame queued, Present's wait for the

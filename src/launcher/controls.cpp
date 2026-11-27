@@ -11,6 +11,8 @@
 #include "panel.h"
 #include "platform/input_map.h"
 #include "platform/ui_text.h"  /* PC (2026-11-16): the interface's languages */
+#include "platform/wheel_ffb.h" /* PC (2026-11-20): the force feedback testers (the game's own code) */
+#include "platform/joy_names.h" /* PC (2026-11-23): the names joysticks go by (the game's own code) */
 
 #include <SDL3/SDL.h>
 #include <commctrl.h>
@@ -67,6 +69,26 @@ enum : int {
     IDC_SUB_HOTKEYS = kFirstId + 50,
     IDC_HOT_RESET,
     IDC_HOT_NOTE,
+    /* PC (2026-11-20): a wheel's force feedback - its three sliders, four
+     * labels (the sliders', Invert's), three values, Invert's list, the
+     * three tests' buttons and label, the status */
+    IDC_FFB0 = kFirstId + 60,
+    IDC_FFB_LABEL0 = IDC_FFB0 + 3,
+    IDC_FFB_VALUE0 = IDC_FFB_LABEL0 + 4,
+    IDC_FFB_INVERT = IDC_FFB_VALUE0 + 3,
+    IDC_FFB_TEST0 = IDC_FFB_INVERT + 1,
+    IDC_FFB_TEST_LABEL = IDC_FFB_TEST0 + 3,
+    IDC_FFB_STATUS,
+    IDC_FFB_LOSS_LABEL,                     /* PC (2026-11-22): the FFB loss workaround's label, list */
+    IDC_FFB_LOSS,
+    /* PC (2026-11-20): a wheel's steering filter (label, list) and curve
+     * (label, slider, value, the graph window's button) */
+    IDC_STEER_FILTER_LABEL = kFirstId + 84,
+    IDC_STEER_FILTER,
+    IDC_STEER_CURVE_LABEL,
+    IDC_STEER_CURVE,
+    IDC_STEER_CURVE_VALUE,
+    IDC_STEER_GRAPH,
     /* PC (2026-11-13): 21 hotkeys (the texture replacement menu's) no longer
      * fit three ranges of 20: the ranges from here on packed again in the
      * tab's ids (kFirstId .. kLastId, controls.h: + 0 .. + 299), room for
@@ -79,6 +101,9 @@ enum : int {
     IDC_END = IDC_HOT_DEV0 + kHotkeyIds,            /* (the first id after the tab's) */
 };
 static_assert(IDC_DEADZONE_VALUE0 + kDeadzones <= IDC_CONTROL_LABEL0, "the tab's ids");
+static_assert(IDC_HOT_NOTE < IDC_FFB0 && IDC_FFB_LOSS < IDC_DEADZONE_VALUE0, "the force feedback's ids");
+static_assert(IDC_DEADZONE_VALUE0 + kDeadzones <= IDC_STEER_FILTER_LABEL && IDC_STEER_GRAPH < IDC_CONTROL_LABEL0,
+              "the steering's ids");
 static_assert(IDC_CONTROL_LABEL0 + kMaxControls <= IDC_SLOT0, "the tab's ids");
 static_assert(IDC_SLOT0 + kMaxControls * kSlots <= IDC_HOT_LABEL0, "the tab's ids");
 static_assert(kHotkeyCount <= kHotkeyIds && IDC_END - 1 <= kLastId, "the hotkeys' ids");
@@ -98,17 +123,39 @@ struct PadState {
 /* Any joystick, raw. */
 struct JoyState {
     SDL_JoystickID id;
-    std::string name;
+    std::string name;                       /* (PC 2026-11-23: joy_names' - the 2nd of a name "<name> #2") */
     bool gamepad, wheel;                    /* SDL maps it as a gamepad / types it a wheel */
+    bool haptic;                            /* PC (2026-11-20): SDL finds force feedback on it */
+    bool lesser;                            /* PC (2026-11-23): joy_names::lesser - never an automatic wheel */
     int buttonCount, axisCount, hatCount;
     uint8_t buttons[128];
     int16_t axes[16];
     uint8_t hats[4];
 };
+/* PC (2026-11-20): the force feedback testers - a push left, a push right
+ * (the steering force kTestForce, kTestPushMs), the centring spring
+ * (GT3's own, kTestSpringMs) - played by the SDL thread on a wheel through
+ * the game's wheel_ffb::Device with the settings shown; their outcome */
+enum FfbTest { kTestLeft, kTestRight, kTestSpring, kTestCount };
+const wchar_t *const kTestNames[kTestCount] = {N_(L"Push left"), N_(L"Push right"), N_(L"Centering spring")};
+constexpr float kTestForce = 0.5f;
+constexpr ULONGLONG kTestPushMs = 500, kTestSpringMs = 4000;
+enum class TestResult { none, playing, done, gone, noFfb, openFailed, noConstant, noSpring };
+struct TestAsk {
+    unsigned seq = 0;                       /* bumped by each ask */
+    SDL_JoystickID id = 0;
+    int kind = 0;
+    wheel_ffb::Settings set;
+};
 struct Snapshot {
     std::vector<PadState> pads;             /* in SDL's order: the game's ports take them so */
     std::vector<JoyState> joys;
     unsigned devices = 0;                   /* bumped when one comes or goes */
+    /* PC (2026-11-20): the last test's (the ask's seq) */
+    unsigned testSeq = 0;
+    int testKind = 0;
+    TestResult test = TestResult::none;
+    std::string testWhy;                    /* openFailed: SDL's words */
 };
 
 int g_sdl = 0;                              /* SDL3.dll: 0 not tried, 1 loaded, -1 missing or too old */
@@ -116,6 +163,7 @@ std::thread g_thread;
 std::atomic<bool> g_quit{false};
 std::mutex g_mutex;
 Snapshot g_snap;
+TestAsk g_testAsk;                          /* PC (2026-11-20): under g_mutex */
 
 bool load_sdl()
 {
@@ -137,20 +185,41 @@ void sdl_main()
         g_sdl = -1;
         return;
     }
+    const bool haptic = SDL_InitSubSystem(SDL_INIT_HAPTIC);    /* PC (2026-11-20): the testers */
     struct Open {
         SDL_JoystickID id;
         SDL_Joystick *joy;
         SDL_Gamepad *pad;
+        std::string name;                   /* PC (2026-11-23): joy_names::of / lesser, as of `named' */
+        bool lesser = false;
     };
     std::vector<Open> open;
     unsigned devices = 0;
+    unsigned named = ~0u;                   /* (the `devices' the names were made at) */
+    /* PC (2026-11-20): the test playing - its wheel's force feedback (opened
+     * for the test alone: the wheel's own centring comes back between
+     * tests), what, with which settings, until when */
+    wheel_ffb::Device ffb;
+    SDL_JoystickID ffbId = 0;
+    TestAsk test;
+    ULONGLONG testUntil = 0;
+    unsigned testSeq;
+    {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        testSeq = g_testAsk.seq;                /* (an ask of before the tab was hidden: not played again) */
+    }
+    TestResult result = TestResult::none;
+    std::string why;
     while (!g_quit) {
         SDL_Event e;
         while (SDL_PollEvent(&e)) {
             if (e.type == SDL_EVENT_JOYSTICK_ADDED) {
                 const SDL_JoystickID id = e.jdevice.which;
                 if (std::none_of(open.begin(), open.end(), [&](const Open &o) { return o.id == id; })) {
-                    Open o = {id, SDL_OpenJoystick(id), SDL_IsGamepad(id) ? SDL_OpenGamepad(id) : nullptr};
+                    Open o;
+                    o.id = id;
+                    o.joy = SDL_OpenJoystick(id);
+                    o.pad = SDL_IsGamepad(id) ? SDL_OpenGamepad(id) : nullptr;
                     if (o.joy != nullptr) {
                         open.push_back(o);
                         devices++;
@@ -161,6 +230,10 @@ void sdl_main()
             } else if (e.type == SDL_EVENT_JOYSTICK_REMOVED) {
                 for (size_t i = 0; i < open.size(); i++)
                     if (open[i].id == e.jdevice.which) {
+                        if (ffb.is_open() && ffbId == open[i].id) {
+                            ffb.close();    /* (PC 2026-11-20: its test ends with it) */
+                            result = TestResult::gone;
+                        }
                         if (open[i].pad != nullptr)
                             SDL_CloseGamepad(open[i].pad);
                         SDL_CloseJoystick(open[i].joy);
@@ -168,17 +241,80 @@ void sdl_main()
                         devices++;
                         break;
                     }
+                joy_names::forget(e.jdevice.which);     /* PC (2026-11-23) */
+            }
+        }
+        /* PC (2026-11-23): the names they go by, made again when one came or
+         * went (another of a name changes "<name> #2") */
+        if (named != devices) {
+            named = devices;
+            for (Open &o : open) {
+                o.name = joy_names::of(o.id);
+                o.lesser = joy_names::lesser(o.id);
+            }
+        }
+        /* PC (2026-11-20): a test asked for: its wheel's force feedback
+         * opened, the forces played until its time is up, then let go */
+        const ULONGLONG now = GetTickCount64();
+        TestAsk ask;
+        {
+            std::lock_guard<std::mutex> lock(g_mutex);
+            ask = g_testAsk;
+        }
+        if (ask.seq != testSeq) {
+            testSeq = ask.seq;
+            test = ask;
+            why.clear();
+            ffb.close();
+            const auto it = std::find_if(open.begin(), open.end(), [&](const Open &o) { return o.id == ask.id; });
+            if (it == open.end()) {
+                result = TestResult::gone;
+            } else if (!haptic || !SDL_IsJoystickHaptic(it->joy)) {
+                result = TestResult::noFfb;
+            } else if (!ffb.open(it->joy)) {
+                result = TestResult::openFailed;
+                why = ffb.why();
+            } else if (ask.kind == kTestSpring ? !ffb.has_spring() : !ffb.has_constant()) {
+                result = ask.kind == kTestSpring ? TestResult::noSpring : TestResult::noConstant;
+                ffb.close();
+            } else {
+                ffbId = ask.id;
+                result = TestResult::playing;
+                testUntil = now + (ask.kind == kTestSpring ? kTestSpringMs : kTestPushMs);
+            }
+        }
+        if (ffb.is_open()) {
+            wheel_ffb::Forces f;
+            if (now < testUntil) {
+                if (test.kind == kTestSpring) {
+                    f.spring = true;            /* (GT3's menus' spring: K 3, clip 0x1E) */
+                    f.springK = 3.0f / 7.0f;
+                    f.springClip = 30.0f / 255.0f;
+                } else {
+                    f.force = test.kind == kTestRight ? kTestForce : -kTestForce;
+                    f.sent = true;              /* (PC 2026-11-22: as the game, a force each pass) */
+                }
+                ffb.apply(f, test.set);
+            } else {
+                ffb.apply(f, test.set);         /* (nothing: then let go) */
+                ffb.close();
+                result = TestResult::done;
             }
         }
         Snapshot s;
         s.devices = devices;
+        s.testSeq = testSeq;
+        s.testKind = test.kind;
+        s.test = result;
+        s.testWhy = why;
         for (const Open &o : open) {
             JoyState j = {};
             j.id = o.id;
-            const char *name = SDL_GetJoystickName(o.joy);
-            j.name = name != nullptr ? name : "";
+            j.name = o.name;                    /* (PC 2026-11-23: was SDL_GetJoystickName) */
+            j.lesser = o.lesser;
             j.gamepad = o.pad != nullptr;
             j.wheel = SDL_GetJoystickType(o.joy) == SDL_JOYSTICK_TYPE_WHEEL;
+            j.haptic = haptic && SDL_IsJoystickHaptic(o.joy);     /* PC (2026-11-20) */
             j.buttonCount = std::clamp(SDL_GetNumJoystickButtons(o.joy), 0, 128);
             j.axisCount = std::clamp(SDL_GetNumJoystickAxes(o.joy), 0, 16);
             j.hatCount = std::clamp(SDL_GetNumJoystickHats(o.joy), 0, 4);
@@ -207,12 +343,26 @@ void sdl_main()
         }
         Sleep(5);
     }
+    ffb.close();                                /* PC (2026-11-20): a test cut short */
     for (const Open &o : open) {
         if (o.pad != nullptr)
             SDL_CloseGamepad(o.pad);
         SDL_CloseJoystick(o.joy);
     }
     SDL_Quit();
+}
+
+/* PC (2026-11-20): a force feedback test on joystick `id', with these
+ * settings (the SDL thread plays it: sdl_main); its seq (Snapshot::testSeq
+ * once taken). */
+unsigned ask_test(SDL_JoystickID id, int kind, const wheel_ffb::Settings &set)
+{
+    std::lock_guard<std::mutex> lock(g_mutex);
+    g_testAsk.seq++;
+    g_testAsk.id = id;
+    g_testAsk.kind = kind;
+    g_testAsk.set = set;
+    return g_testAsk.seq;
 }
 
 void sdl_start()
@@ -253,6 +403,17 @@ struct Tab {
     HWND deadzone[kDeadzones] = {}, deadzoneLabel[kDeadzones] = {}, deadzoneValue[kDeadzones] = {};
     HWND device = nullptr, deviceLabel = nullptr, live = nullptr, note = nullptr;
     HWND input = nullptr, inputLabel = nullptr;
+    /* PC (2026-11-20): a wheel's force feedback (Calibration): the strength,
+     * centring spring and minimum's sliders, labels (Invert's fourth) and
+     * values, Invert's list, the tests' buttons and label, the status */
+    HWND ffb[3] = {}, ffbLabel[4] = {}, ffbValue[3] = {};
+    HWND ffbInvert = nullptr, ffbTest[kTestCount] = {}, ffbTestLabel = nullptr, ffbStatus = nullptr;
+    HWND ffbLossLabel = nullptr, ffbLoss = nullptr;     /* PC (2026-11-22): the FFB loss workaround's */
+    std::wstring ffbText;                   /* the status shown */
+    unsigned testSeq = 0;                   /* the last test asked (0: none) */
+    /* PC (2026-11-20): a wheel's steering filter and curve (Calibration) */
+    HWND steerFilterLabel = nullptr, steerFilter = nullptr;
+    HWND steerCurveLabel = nullptr, steerCurve = nullptr, steerCurveValue = nullptr, steerGraph = nullptr;
     HWND hotLabel[kHotkeyCount] = {}, hotKey[kHotkeyCount] = {}, hotDev[kHotkeyCount] = {};
     HWND hotReset = nullptr, hotNote = nullptr;
     HFONT font = nullptr, tabFont = nullptr;
@@ -348,6 +509,73 @@ void deadzone_text(int i)
     SetWindowTextW(t.deadzoneValue[i], (std::to_wstring(t.p.deadzone[i]) + L"%").c_str());
 }
 
+/* PC (2026-11-20): force feedback slider i's value shown (the strength's 0:
+ * Off), the slider at it unless `keepThumb' (while it is dragged). */
+void ffb_text(int i, bool keepThumb = false)
+{
+    if (!keepThumb)
+        SendMessageW(t.ffb[i], TBM_SETPOS, TRUE, t.p.ffb[i]);
+    const std::wstring v = i == kFfbStrength && t.p.ffb[i] == 0 ? std::wstring(tr(L"Off"))
+                                                                : std::to_wstring(t.p.ffb[i]) + L"%";
+    SetWindowTextW(t.ffbValue[i], v.c_str());
+}
+
+/* PC (2026-11-20): a wheel's steering filter and curve shown (the slider
+ * unless `keepThumb': while it is dragged) */
+std::wstring curve_short(int c);
+void steer_text(bool keepThumb)
+{
+    SendMessageW(t.steerFilter, CB_SETCURSEL, t.p.steerFilter ? 0 : 1, 0);
+    if (!keepThumb)
+        SendMessageW(t.steerCurve, TBM_SETPOS, TRUE, t.p.steerCurve);
+    SetWindowTextW(t.steerCurveValue, curve_short(t.p.steerCurve).c_str());
+}
+void steer_text() { steer_text(false); }
+
+/* PC (2026-11-20): the profile's force feedback settings, as shown */
+wheel_ffb::Settings ffb_settings()
+{
+    wheel_ffb::Settings s;
+    s.strength = t.p.ffb[kFfbStrength];
+    s.spring = t.p.ffb[kFfbSpring];
+    s.minimum = t.p.ffb[kFfbMinimum];
+    s.invert = t.p.ffb[kFfbInvert];
+    s.restart = t.p.ffb[kFfbLossWorkaround];   /* PC (2026-11-22) */
+    return s;
+}
+
+/* PC (2026-11-20): `text''s width on one line in control c's font */
+int text_width_of(HWND c, const wchar_t *text)
+{
+    if (c == nullptr)
+        return 0;
+    HDC dc = GetDC(c);
+    HFONT f = (HFONT)SendMessageW(c, WM_GETFONT, 0, 0);
+    HGDIOBJ old = SelectObject(dc, f != nullptr ? (HGDIOBJ)f : GetStockObject(DEFAULT_GUI_FONT));
+    RECT r = {0, 0, 0, 0};
+    DrawTextW(dc, text, -1, &r, DT_CALCRECT | DT_SINGLELINE | DT_NOPREFIX);
+    SelectObject(dc, old);
+    ReleaseDC(c, dc);
+    return (int)r.right;
+}
+
+/* PC (2026-11-20): a label's text's width on one line, in its own font */
+int text_width(HWND c)
+{
+    if (c == nullptr)
+        return 0;
+    wchar_t text[512] = L"";
+    GetWindowTextW(c, text, 512);
+    HDC dc = GetDC(c);
+    HFONT f = (HFONT)SendMessageW(c, WM_GETFONT, 0, 0);
+    HGDIOBJ old = SelectObject(dc, f != nullptr ? (HGDIOBJ)f : GetStockObject(DEFAULT_GUI_FONT));
+    RECT r = {0, 0, 0, 0};
+    DrawTextW(dc, text, -1, &r, DT_CALCRECT | DT_SINGLELINE | DT_NOPREFIX);
+    SelectObject(dc, old);
+    ReleaseDC(c, dc);
+    return (int)r.right;
+}
+
 void save()
 {
     input_map::save(t.ini.c_str(), t.prof, t.p);
@@ -386,9 +614,23 @@ const JoyState *wheel_device(const Snapshot &s)
                 return &j;
         return nullptr;
     }
-    int skip = t.prof == kWheel2 && t.otherDevice.empty() ? 1 : 0;
+    /* PC (2026-11-23), as the game's wheel_for (gamepad.cpp): the joystick
+     * the profile's steering is bound to by name is its wheel; the lesser
+     * part of a device (the collection without force feedback of a wheel
+     * base that shows as two controllers) is no automatic wheel; a wheel
+     * whose steering names its joystick takes none of the automatic ones */
+    const char *steer = steer_device(t.p);
+    if (steer[0] != '\0') {
+        for (const JoyState &j : s.joys)
+            if (_stricmp(j.name.c_str(), steer) == 0)
+                return &j;
+        return nullptr;
+    }
+    int skip = t.prof == kWheel2 && t.otherDevice.empty() && steer_device(t.otherWheel)[0] == '\0' ? 1 : 0;
     for (const JoyState &j : s.joys) {
-        if (!j.wheel || named_by_wheel(j.name) ||
+        /* (a joystick the bindings name is a wheel's device unless it has
+         * force feedback: the wheel itself, joy_names::haptic) */
+        if (!j.wheel || j.lesser || (named_by_wheel(j.name) && !j.haptic) ||
             (!t.otherDevice.empty() && _stricmp(j.name.c_str(), t.otherDevice.c_str()) == 0))
             continue;
         if (skip-- == 0)
@@ -611,6 +853,313 @@ void live_text(const Snapshot &s)
     }
 }
 
+/* PC (2026-11-20): a wheel's force feedback status: the last test's outcome
+ * (Snapshot::test of the seq asked), else whether the wheel has any. */
+void ffb_status(const Snapshot &s)
+{
+    if (!is_wheel(t.prof))
+        return;
+    std::wstring text;
+    const JoyState *j = wheel_device(s);
+    if (g_sdl < 0) {
+        text.clear();                       /* (the live view says SDL3.dll is missing) */
+    } else if (t.testSeq != 0 && s.testSeq == t.testSeq && s.test != TestResult::none) {
+        const int k = std::clamp(s.testKind, 0, kTestCount - 1);
+        switch (s.test) {
+        case TestResult::playing:
+            text = k == kTestSpring ? tr(L"Force feedback: the centering spring is on for 4 seconds - turn the wheel: "
+                                         L"it pulls back to the center.")
+                                    : trf(L"Force feedback: %s...", tr(kTestNames[k]));
+            break;
+        case TestResult::done:
+            text = k == kTestSpring ? tr(L"Force feedback: the centering spring test is over.")
+                                    : tr(L"Force feedback: done. If the wheel turned the other way, set Invert force "
+                                         L"feedback to On.");
+            break;
+        case TestResult::gone:
+            text = tr(L"Force feedback: the wheel is not connected.");
+            break;
+        case TestResult::noFfb:
+            text = tr(L"Force feedback: SDL finds none on this wheel.");
+            break;
+        case TestResult::openFailed:
+            text = trf(L"Force feedback: it could not be opened (%s).", widen(s.testWhy.c_str()).c_str());
+            break;
+        case TestResult::noConstant:
+            text = tr(L"Force feedback: this wheel plays no constant force (the steering force).");
+            break;
+        case TestResult::noSpring:
+            text = tr(L"Force feedback: this wheel plays no spring (the centering spring).");
+            break;
+        case TestResult::none:
+            break;
+        }
+    } else if (j == nullptr) {
+        text = tr(L"Force feedback: no wheel connected.");
+    } else if (!j->haptic) {
+        text = tr(L"Force feedback: SDL finds none on this wheel.");
+    } else {
+        text = tr(L"Force feedback: available. The tests play on the wheel with the settings above, as the game "
+                  L"would.");
+    }
+    if (t.ffbText != text) {
+        t.ffbText = text;
+        SetWindowTextW(t.ffbStatus, text.c_str());
+    }
+}
+
+/* ---- PC (2026-11-20): a wheel's steering curve and its window ------------- */
+/* (user: "a steering input curve. Option should show a graph of the curve,
+ * should be able to set the curve granularly, from a slow ramp up at the end,
+ * to linear, to a fast ramp up.  For the launcher, the graph display can be
+ * a separate window popup") */
+
+/* The wheel's steering as the game reads it now (-1..1, + right: the live
+ * view's, after the steering dead zone); false: no wheel. */
+bool wheel_steer_now(const Snapshot &s, float *out)
+{
+    const JoyState *j = is_wheel(t.prof) ? wheel_device(s) : nullptr;
+    if (j == nullptr)
+        return false;
+    const JoySource js = joy_source(*j);
+    Named named;
+    named_devices(s, &named);
+    const Sources src = {nullptr, &js, nullptr, 0, named.src.data(), (int)named.src.size()};
+    auto v = [&](int c) { return std::max(value(t.p.map[c][0], src), value(t.p.map[c][1], src)); };
+    const float steer = v(WHEEL_STEER_RIGHT) - v(WHEEL_STEER_LEFT);
+    const float m = apply_deadzone(std::fabs(steer), t.p.deadzone[0] / 100.0f);
+    *out = steer < 0.0f ? -m : m;
+    return true;
+}
+
+/* The curve's value: the tab's (short) and the window's */
+std::wstring curve_short(int c)
+{
+    return c == 0 ? std::wstring(tr(L"Linear")) : (c > 0 ? L"+" : L"") + std::to_wstring(c);
+}
+std::wstring curve_long(int c)
+{
+    if (c == 0)
+        return tr(L"Steering curve: linear");
+    return c > 0 ? trf(L"Steering curve: %+d, a fast ramp up", c) : trf(L"Steering curve: %+d, a slow ramp up", c);
+}
+
+constexpr int kCurveGraph = 300, kCurveMargin = 14;     /* (96-DPI units) */
+enum { IDC_CW_VALUE = 10, IDC_CW_SLIDER, IDC_CW_LINEAR, IDC_CW_CLOSE };
+struct CurveWindow {
+    HWND wnd = nullptr, value = nullptr, slider = nullptr, linear = nullptr, close = nullptr;
+    float live = 2.0f;                      /* the wheel's steering now, -1..1 (2: none shown) */
+} g_cw;
+
+RECT curve_graph_rect()
+{
+    return {px(kCurveMargin), px(kCurveMargin), px(kCurveMargin + kCurveGraph), px(kCurveMargin + kCurveGraph)};
+}
+
+/* The graph: the wheel's input across (left to right), the steering it gives
+ * up the side, quarters, the centre lines and the linear diagonal under the
+ * curve, the wheel's position now as a dot on it. */
+void curve_paint(HDC dc, const RECT &r, int c)
+{
+    const int w = r.right - r.left, h = r.bottom - r.top;
+    HBRUSH bg = CreateSolidBrush(RGB(16, 18, 24));
+    FillRect(dc, &r, bg);
+    DeleteObject(bg);
+    auto X = [&](float x) { return r.left + (int)lroundf((x + 1.0f) * 0.5f * (float)(w - 1)); };
+    auto Y = [&](float y) { return r.top + (int)lroundf((1.0f - (y + 1.0f) * 0.5f) * (float)(h - 1)); };
+    HPEN grid = CreatePen(PS_SOLID, 1, RGB(44, 48, 58)), axis = CreatePen(PS_SOLID, 1, RGB(96, 102, 118));
+    HPEN diag = CreatePen(PS_DOT, 1, RGB(140, 140, 104));
+    HPEN curve = CreatePen(PS_SOLID, std::max(2, px(2)), RGB(235, 52, 52));
+    HGDIOBJ old = SelectObject(dc, grid);
+    for (int i = 1; i < 4; i++) {
+        if (i == 2)
+            continue;
+        const float q = -1.0f + 0.5f * (float)i;
+        MoveToEx(dc, X(q), r.top, nullptr);
+        LineTo(dc, X(q), r.bottom);
+        MoveToEx(dc, r.left, Y(q), nullptr);
+        LineTo(dc, r.right, Y(q));
+    }
+    SelectObject(dc, axis);
+    MoveToEx(dc, X(0.0f), r.top, nullptr);
+    LineTo(dc, X(0.0f), r.bottom);
+    MoveToEx(dc, r.left, Y(0.0f), nullptr);
+    LineTo(dc, r.right, Y(0.0f));
+    SetBkMode(dc, TRANSPARENT);
+    SelectObject(dc, diag);
+    MoveToEx(dc, X(-1.0f), Y(-1.0f), nullptr);
+    LineTo(dc, X(1.0f), Y(1.0f));
+    POINT pts[241];
+    for (int i = 0; i <= 240; i++) {
+        const float x = -1.0f + 2.0f * (float)i / 240.0f;
+        pts[i] = {X(x), Y(apply_steer_curve(x, c))};
+    }
+    SelectObject(dc, curve);
+    Polyline(dc, pts, 241);
+    if (g_cw.live <= 1.0f) {
+        const int lx = X(g_cw.live), ly = Y(apply_steer_curve(g_cw.live, c)), rad = px(5);
+        SelectObject(dc, axis);
+        MoveToEx(dc, lx, Y(0.0f), nullptr);
+        LineTo(dc, lx, ly);
+        SelectObject(dc, GetStockObject(WHITE_BRUSH));
+        SelectObject(dc, GetStockObject(BLACK_PEN));
+        Ellipse(dc, lx - rad, ly - rad, lx + rad + 1, ly + rad + 1);
+    }
+    /* the axes' names */
+    HGDIOBJ oldFont = SelectObject(dc, t.font != nullptr ? (HGDIOBJ)t.font : GetStockObject(DEFAULT_GUI_FONT));
+    SetTextColor(dc, RGB(150, 152, 165));
+    RECT tr1 = {r.left + px(6), r.top + px(4), r.right - px(6), r.bottom - px(4)};
+    DrawTextW(dc, tr(L"Steering"), -1, &tr1, DT_LEFT | DT_TOP | DT_SINGLELINE | DT_NOPREFIX);
+    DrawTextW(dc, tr(L"Wheel input"), -1, &tr1, DT_RIGHT | DT_BOTTOM | DT_SINGLELINE | DT_NOPREFIX);
+    SelectObject(dc, oldFont);
+    SelectObject(dc, old);
+    DeleteObject(grid);
+    DeleteObject(axis);
+    DeleteObject(diag);
+    DeleteObject(curve);
+}
+
+/* The curve set from the window or the tab: shown in both, written once
+ * a slider is let go (`save_now') */
+void curve_set(int c, bool saveNow)
+{
+    t.p.steerCurve = std::clamp(c, -kSteerCurveMax, kSteerCurveMax);
+    steer_text(!saveNow);                   /* (the tab's own slider while it is the one dragged) */
+    if (g_cw.wnd != nullptr) {
+        SendMessageW(g_cw.slider, TBM_SETPOS, TRUE, t.p.steerCurve);
+        SetWindowTextW(g_cw.value, curve_long(t.p.steerCurve).c_str());
+        const RECT g = curve_graph_rect();
+        InvalidateRect(g_cw.wnd, &g, FALSE);
+    }
+    if (saveNow)
+        save();
+}
+
+LRESULT CALLBACK curve_proc(HWND w, UINT msg, WPARAM wp, LPARAM lp)
+{
+    switch (msg) {
+    case WM_ERASEBKGND:
+        return 1;
+    case WM_PAINT: {
+        PAINTSTRUCT ps;
+        HDC dc = BeginPaint(w, &ps);
+        RECT rc;
+        GetClientRect(w, &rc);
+        HDC mem = CreateCompatibleDC(dc);
+        HBITMAP bmp = CreateCompatibleBitmap(dc, rc.right, rc.bottom);
+        HGDIOBJ oldBmp = SelectObject(mem, bmp);
+        FillRect(mem, &rc, GetSysColorBrush(COLOR_3DFACE));
+        curve_paint(mem, curve_graph_rect(), t.p.steerCurve);
+        BitBlt(dc, 0, 0, rc.right, rc.bottom, mem, 0, 0, SRCCOPY);
+        SelectObject(mem, oldBmp);
+        DeleteObject(bmp);
+        DeleteDC(mem);
+        EndPaint(w, &ps);
+        return 0;
+    }
+    case WM_HSCROLL:
+        if ((HWND)lp == g_cw.slider)
+            curve_set((int)SendMessageW(g_cw.slider, TBM_GETPOS, 0, 0), LOWORD(wp) != TB_THUMBTRACK);
+        return 0;
+    case WM_COMMAND:
+        if (LOWORD(wp) == IDC_CW_LINEAR && HIWORD(wp) == BN_CLICKED)
+            curve_set(0, true);
+        else if ((LOWORD(wp) == IDC_CW_CLOSE || LOWORD(wp) == IDCANCEL) && HIWORD(wp) == BN_CLICKED)
+            DestroyWindow(w);
+        return 0;
+    case WM_CLOSE:
+        DestroyWindow(w);
+        return 0;
+    case WM_DESTROY:
+        g_cw = CurveWindow();
+        return 0;
+    }
+    return DefWindowProcW(w, msg, wp, lp);
+}
+
+void close_curve_window()
+{
+    if (g_cw.wnd != nullptr)
+        DestroyWindow(g_cw.wnd);
+}
+
+/* The window of the profile shown (a wheel's), over the launcher's middle. */
+void open_curve_window()
+{
+    if (!is_wheel(t.prof))
+        return;
+    if (g_cw.wnd != nullptr) {
+        SetForegroundWindow(g_cw.wnd);
+        return;
+    }
+    static bool registered = false;
+    if (!registered) {
+        WNDCLASSEXW wc = {};
+        wc.cbSize = sizeof(wc);
+        wc.lpfnWndProc = curve_proc;
+        wc.hInstance = t.inst;
+        wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+        wc.hbrBackground = GetSysColorBrush(COLOR_3DFACE);
+        wc.lpszClassName = L"GT3SteeringCurve";
+        registered = RegisterClassExW(&wc) != 0;
+    }
+    HWND owner = GetAncestor(t.page, GA_ROOT);
+    const int m = px(kCurveMargin), g = px(kCurveGraph);
+    const int valueY = m + g + px(10), sliderY = valueY + px(24), buttonY = sliderY + px(36);
+    const int cw = g + 2 * m, ch = buttonY + px(kSlotH) + m;
+    const DWORD style = WS_POPUP | WS_CAPTION | WS_SYSMENU;
+    RECT rc = {0, 0, cw, ch};
+    AdjustWindowRectExForDpi(&rc, style, FALSE, 0, t.dpi);
+    RECT o;
+    GetWindowRect(owner, &o);
+    const int ww = rc.right - rc.left, wh = rc.bottom - rc.top;
+    const std::wstring title = trf(L"Steering curve - %s", widen(tr(profile_name(t.prof))).c_str());
+    g_cw.wnd = CreateWindowExW(0, L"GT3SteeringCurve", title.c_str(), style, (o.left + o.right - ww) / 2,
+                               (o.top + o.bottom - wh) / 2, ww, wh, owner, nullptr, t.inst, nullptr);
+    if (g_cw.wnd == nullptr)
+        return;
+    SendMessageW(g_cw.wnd, WM_SETICON, ICON_SMALL, (LPARAM)GetClassLongPtrW(owner, GCLP_HICONSM));
+    auto child = [&](const wchar_t *cls, const wchar_t *text, DWORD st, int id, int x, int y, int w, int h) {
+        HWND c = CreateWindowExW(0, cls, text, WS_CHILD | WS_VISIBLE | st, x, y, w, h, g_cw.wnd, (HMENU)(INT_PTR)id,
+                                 t.inst, nullptr);
+        if (t.font != nullptr)
+            SendMessageW(c, WM_SETFONT, (WPARAM)t.font, FALSE);
+        return c;
+    };
+    g_cw.value = child(WC_STATICW, curve_long(t.p.steerCurve).c_str(), SS_LEFT | SS_NOPREFIX, IDC_CW_VALUE, m, valueY,
+                       g, px(20));
+    g_cw.slider = child(TRACKBAR_CLASSW, L"", WS_TABSTOP | TBS_HORZ | TBS_AUTOTICKS, IDC_CW_SLIDER, m, sliderY, g,
+                        px(30));
+    SendMessageW(g_cw.slider, TBM_SETRANGEMIN, FALSE, -kSteerCurveMax);
+    SendMessageW(g_cw.slider, TBM_SETRANGEMAX, FALSE, kSteerCurveMax);
+    SendMessageW(g_cw.slider, TBM_SETTICFREQ, 25, 0);
+    SendMessageW(g_cw.slider, TBM_SETLINESIZE, 0, 1);
+    SendMessageW(g_cw.slider, TBM_SETPAGESIZE, 0, 10);
+    SendMessageW(g_cw.slider, TBM_SETPOS, TRUE, t.p.steerCurve);
+    const int bw = px(110);
+    g_cw.linear = child(WC_BUTTONW, tr(L"Linear"), WS_TABSTOP | BS_PUSHBUTTON, IDC_CW_LINEAR, m, buttonY, bw, px(kSlotH));
+    g_cw.close = child(WC_BUTTONW, tr(L"Close"), WS_TABSTOP | BS_PUSHBUTTON, IDC_CW_CLOSE, cw - m - bw, buttonY, bw,
+                       px(kSlotH));
+    g_cw.live = 2.0f;
+    ShowWindow(g_cw.wnd, SW_SHOW);
+    SetFocus(g_cw.slider);
+}
+
+/* The window's dot: the wheel's position now (the tab's timer) */
+void curve_live(const Snapshot &s)
+{
+    if (g_cw.wnd == nullptr)
+        return;
+    float v = 2.0f;
+    if (!wheel_steer_now(s, &v))
+        v = 2.0f;
+    if (std::fabs(v - g_cw.live) < 0.002f)
+        return;
+    g_cw.live = v;
+    const RECT g = curve_graph_rect();
+    InvalidateRect(g_cw.wnd, &g, FALSE);
+}
+
 /* Everything of the profile shown, and which controls show. */
 void refresh()
 {
@@ -645,6 +1194,29 @@ void refresh()
     const bool dev = cal && is_wheel(t.prof);
     ShowWindow(t.device, dev ? SW_SHOW : SW_HIDE);
     ShowWindow(t.deviceLabel, dev ? SW_SHOW : SW_HIDE);
+    /* PC (2026-11-20): a wheel's steering filter and curve */
+    steer_text();
+    for (HWND h : {t.steerFilterLabel, t.steerFilter, t.steerCurveLabel, t.steerCurve, t.steerCurveValue, t.steerGraph})
+        ShowWindow(h, dev ? SW_SHOW : SW_HIDE);
+    /* PC (2026-11-20): a wheel's force feedback */
+    for (int i = 0; i < 3; i++) {
+        ffb_text(i);
+        ShowWindow(t.ffb[i], dev ? SW_SHOW : SW_HIDE);
+        ShowWindow(t.ffbValue[i], dev ? SW_SHOW : SW_HIDE);
+    }
+    for (HWND h : t.ffbLabel)
+        ShowWindow(h, dev ? SW_SHOW : SW_HIDE);
+    SendMessageW(t.ffbInvert, CB_SETCURSEL, t.p.ffb[kFfbInvert] != 0 ? 1 : 0, 0);
+    ShowWindow(t.ffbInvert, dev ? SW_SHOW : SW_HIDE);
+    SendMessageW(t.ffbLoss, CB_SETCURSEL, t.p.ffb[kFfbLossWorkaround] != 0 ? 1 : 0, 0);   /* PC (2026-11-22) */
+    ShowWindow(t.ffbLoss, dev ? SW_SHOW : SW_HIDE);
+    ShowWindow(t.ffbLossLabel, dev ? SW_SHOW : SW_HIDE);
+    for (HWND h : t.ffbTest)
+        ShowWindow(h, dev ? SW_SHOW : SW_HIDE);
+    ShowWindow(t.ffbTestLabel, dev ? SW_SHOW : SW_HIDE);
+    ShowWindow(t.ffbStatus, dev ? SW_SHOW : SW_HIDE);
+    t.ffbText.clear();
+    SetWindowTextW(t.ffbStatus, L"");
     SetWindowTextW(t.inputLabel, t.prof == kWheel2 ? tr(L"Player 2 plays with") : tr(L"Player 1 plays with"));
     SendMessageW(t.input, CB_SETCURSEL, t.p.controller ? 1 : 0, 0);
     ShowWindow(t.input, dev ? SW_SHOW : SW_HIDE);
@@ -765,7 +1337,8 @@ void take(Binding b, const PadState *pad, const JoyState *joy)
     if (joy != nullptr && is_wheel(t.prof) && _stricmp(joy->name.c_str(), t.p.device) != 0) {
         const Snapshot now = snapshot();
         const JoyState *own = wheel_device(now);
-        if (own == nullptr && t.p.device[0] == '\0' && !named_by_wheel(joy->name)) {
+        /* (PC 2026-11-23: not the lesser part of a device: that one is named) */
+        if (own == nullptr && t.p.device[0] == '\0' && !named_by_wheel(joy->name) && !joy->lesser) {
             snprintf(t.p.device, sizeof(t.p.device), "%s", joy->name.c_str());
             t.listed = ~0u;
             fill_devices(now);
@@ -961,8 +1534,20 @@ void capture_poll()
                     return;
                 }
         }
+        /* PC (2026-11-23): a wheel's steering - the half the axis moved
+         * towards, wherever it was (capture_steer_axis: a wheel that stays
+         * where it was turned to made the other side "the whole axis") */
+        const bool steering = t.capHot < 0 && is_wheel(t.prof) &&
+                              (t.capControl == WHEEL_STEER_LEFT || t.capControl == WHEEL_STEER_RIGHT);
         for (int a = 0; a < j.axisCount; a++) {
             Binding x;
+            if (steering) {
+                if (capture_steer_axis(a, r->axes[a], j.axes[a], &x)) {
+                    take(x, nullptr, &j);
+                    return;
+                }
+                continue;
+            }
             const bool centred = std::abs(r->axes[a]) <= 16384;
             if ((!centred || std::abs(j.axes[a] - r->axes[a]) >= 16384) &&
                 capture_axis(true, a, r->axes[a], j.axes[a], &x)) {
@@ -1037,6 +1622,41 @@ void create(HWND page, HINSTANCE inst, const std::wstring &ini)
         SendMessageW(t.deadzone[i], TBM_SETPAGESIZE, 0, 5);
         t.deadzoneValue[i] = make_label(t.list, L"", IDC_DEADZONE_VALUE0 + i);
     }
+    /* PC (2026-11-20): a wheel's steering filter and curve (its Calibration) */
+    t.steerFilterLabel = make_label(t.list, tr(L"Steering filter"), IDC_STEER_FILTER_LABEL);
+    t.steerFilter = make_combo(t.list, IDC_STEER_FILTER);
+    SendMessageW(t.steerFilter, CB_ADDSTRING, 0, (LPARAM)tr(L"On (the game's)"));
+    SendMessageW(t.steerFilter, CB_ADDSTRING, 0, (LPARAM)tr(L"Off (direct)"));
+    t.steerCurveLabel = make_label(t.list, tr(L"Steering curve"), IDC_STEER_CURVE_LABEL);
+    t.steerCurve = make_slider(t.list, IDC_STEER_CURVE);
+    SendMessageW(t.steerCurve, TBM_SETRANGEMIN, FALSE, -kSteerCurveMax);
+    SendMessageW(t.steerCurve, TBM_SETRANGEMAX, FALSE, kSteerCurveMax);
+    SendMessageW(t.steerCurve, TBM_SETLINESIZE, 0, 1);
+    SendMessageW(t.steerCurve, TBM_SETPAGESIZE, 0, 10);
+    t.steerCurveValue = make_label(t.list, L"", IDC_STEER_CURVE_VALUE);
+    t.steerGraph = make(t.list, WC_BUTTONW, tr(L"Graph..."), WS_TABSTOP | BS_PUSHBUTTON, IDC_STEER_GRAPH);
+    /* PC (2026-11-20): a wheel's force feedback (shown in its Calibration) */
+    for (int i = 0; i < 3; i++) {
+        t.ffbLabel[i] = make_label(t.list, widen(tr(ffb_name(i))).c_str(), IDC_FFB_LABEL0 + i);
+        t.ffb[i] = make_slider(t.list, IDC_FFB0 + i);
+        SendMessageW(t.ffb[i], TBM_SETRANGE, FALSE, MAKELPARAM(0, ffb_max(i)));
+        SendMessageW(t.ffb[i], TBM_SETLINESIZE, 0, i == kFfbMinimum ? 1 : 5);
+        SendMessageW(t.ffb[i], TBM_SETPAGESIZE, 0, i == kFfbMinimum ? 5 : 25);
+        t.ffbValue[i] = make_label(t.list, L"", IDC_FFB_VALUE0 + i);
+    }
+    t.ffbLabel[kFfbInvert] = make_label(t.list, widen(tr(ffb_name(kFfbInvert))).c_str(), IDC_FFB_LABEL0 + kFfbInvert);
+    t.ffbInvert = make_combo(t.list, IDC_FFB_INVERT);
+    SendMessageW(t.ffbInvert, CB_ADDSTRING, 0, (LPARAM)tr(L"Off"));
+    SendMessageW(t.ffbInvert, CB_ADDSTRING, 0, (LPARAM)tr(L"On"));
+    /* PC (2026-11-22): the FFB loss workaround (FfbLossWorkaround) */
+    t.ffbLossLabel = make_label(t.list, widen(tr(ffb_name(kFfbLossWorkaround))).c_str(), IDC_FFB_LOSS_LABEL);
+    t.ffbLoss = make_combo(t.list, IDC_FFB_LOSS);
+    SendMessageW(t.ffbLoss, CB_ADDSTRING, 0, (LPARAM)tr(L"Off"));
+    SendMessageW(t.ffbLoss, CB_ADDSTRING, 0, (LPARAM)tr(L"On"));
+    t.ffbTestLabel = make_label(t.list, tr(L"Force feedback test"), IDC_FFB_TEST_LABEL);
+    for (int k = 0; k < kTestCount; k++)
+        t.ffbTest[k] = make(t.list, WC_BUTTONW, tr(kTestNames[k]), WS_TABSTOP | BS_PUSHBUTTON, IDC_FFB_TEST0 + k);
+    t.ffbStatus = make_label(t.list, L"", IDC_FFB_STATUS);
     t.inputLabel = make_label(t.list, L"", IDC_INPUT_LABEL);
     t.input = make_combo(t.list, IDC_INPUT);
     SendMessageW(t.input, CB_ADDSTRING, 0, (LPARAM)tr(L"The wheel (while both are connected)"));
@@ -1086,6 +1706,21 @@ void set_font(HFONT font, HFONT tabFont)
         all.push_back(t.deadzoneLabel[i]);
         all.push_back(t.deadzoneValue[i]);
     }
+    for (int i = 0; i < 3; i++) {               /* PC (2026-11-20) */
+        all.push_back(t.ffb[i]);
+        all.push_back(t.ffbValue[i]);
+    }
+    for (HWND h : t.ffbLabel)
+        all.push_back(h);
+    for (HWND h : t.ffbTest)
+        all.push_back(h);
+    all.push_back(t.ffbInvert);
+    all.push_back(t.ffbLossLabel);              /* PC (2026-11-22) */
+    all.push_back(t.ffbLoss);
+    all.push_back(t.ffbTestLabel);
+    all.push_back(t.ffbStatus);
+    for (HWND h : {t.steerFilterLabel, t.steerFilter, t.steerCurveLabel, t.steerCurve, t.steerCurveValue, t.steerGraph})
+        all.push_back(h);                   /* PC (2026-11-20) */
     for (HWND h : all)
         if (h != nullptr)
             SendMessageW(h, WM_SETFONT, (WPARAM)font, FALSE);
@@ -1180,28 +1815,98 @@ void layout(UINT dpi)
         const int cw = panel::begin(t.list, noteH + px(kPad), px(kRowH));
         panel::place(t.list, t.note, x, px(6), cw - 2 * x, noteH);
     } else {
-        const int rows = deadzone_count(t.prof) + (is_wheel(t.prof) ? 2 : 0);
-        const int content = rows * px(kRowH) + px(kLiveH) + noteH + px(kPad);
+        /* (PC 2026-11-20: a wheel's force feedback rows after its dead zones -
+         * three sliders, Invert, the tests - and their status; the label
+         * column as wide as their longest label, kLabelW at least) */
+        const bool wheel = is_wheel(t.prof);
+        /* (PC 2026-11-20: + the steering filter's and curve's; 11-22 + the
+         * FFB loss workaround's) */
+        const int ffbRows = wheel ? 7 + 2 : 0;
+        const int statusH = wheel ? px(kLiveH) : 0;
+        const int rows = deadzone_count(t.prof) + (wheel ? 2 : 0) + ffbRows;
+        const int content = rows * px(kRowH) + statusH + px(kLiveH) + noteH + px(kPad) + (wheel ? px(4) : 0);
         const int cw = panel::begin(t.list, content, px(kRowH));
+        int calLabelW = px(kLabelW);
+        if (wheel) {
+            for (HWND h : t.ffbLabel)
+                calLabelW = std::max(calLabelW, text_width(h) + px(10));
+            for (HWND h : {t.steerFilterLabel, t.steerCurveLabel, t.ffbLossLabel})     /* (PC 2026-11-22) */
+                calLabelW = std::max(calLabelW, text_width(h) + px(10));
+            for (int i = 0; i < deadzone_count(t.prof); i++)
+                calLabelW = std::max(calLabelW, text_width(t.deadzoneLabel[i]) + px(10));
+            calLabelW = std::min(calLabelW, std::max(px(kLabelW), (cw - 2 * x) / 2));
+        }
         int ry = px(2);
-        if (is_wheel(t.prof)) {
-            const int comboW = std::min(px(kComboW + 60), cw - x - px(kLabelW) - x);
-            panel::place(t.list, t.inputLabel, x, ry + px(4), px(kLabelW), px(20));
-            panel::place(t.list, t.input, x + px(kLabelW), ry, comboW, px(kComboListH));
+        if (wheel) {
+            const int comboW = std::min(px(kComboW + 60), cw - x - calLabelW - x);
+            panel::place(t.list, t.inputLabel, x, ry + px(4), calLabelW, px(20));
+            panel::place(t.list, t.input, x + calLabelW, ry, comboW, px(kComboListH));
             ry += px(kRowH);
-            panel::place(t.list, t.deviceLabel, x, ry + px(4), px(kLabelW), px(20));
-            panel::place(t.list, t.device, x + px(kLabelW), ry, comboW, px(kComboListH));
+            panel::place(t.list, t.deviceLabel, x, ry + px(4), calLabelW, px(20));
+            panel::place(t.list, t.device, x + calLabelW, ry, comboW, px(kComboListH));
             ry += px(kRowH);
         }
-        const int sliderW = std::max(px(60), std::min(px(kSliderW), cw - 2 * x - px(kLabelW) - px(kValueGap) - px(kValueW)));
+        const int sliderW = std::max(px(60), std::min(px(kSliderW), cw - 2 * x - calLabelW - px(kValueGap) - px(kValueW)));
         for (int i = 0; i < deadzone_count(t.prof); i++, ry += px(kRowH)) {
-            panel::place(t.list, t.deadzoneLabel[i], x, ry + px(4), px(kLabelW), px(20));
-            panel::place(t.list, t.deadzone[i], x + px(kLabelW), ry, sliderW, px(kSliderH));
-            panel::place(t.list, t.deadzoneValue[i], x + px(kLabelW) + sliderW + px(kValueGap), ry + px(4), px(kValueW),
+            panel::place(t.list, t.deadzoneLabel[i], x, ry + px(4), calLabelW, px(20));
+            panel::place(t.list, t.deadzone[i], x + calLabelW, ry, sliderW, px(kSliderH));
+            panel::place(t.list, t.deadzoneValue[i], x + calLabelW + sliderW + px(kValueGap), ry + px(4), px(kValueW),
                          px(20));
         }
+        if (wheel) {
+            /* PC (2026-11-20): the steering filter's list, the curve's slider,
+             * value and its graph window's button */
+            const int comboW = std::min(px(kComboW + 120), cw - x - calLabelW - x);
+            panel::place(t.list, t.steerFilterLabel, x, ry + px(4), calLabelW, px(20));
+            panel::place(t.list, t.steerFilter, x + calLabelW, ry, comboW, px(kComboListH));
+            ry += px(kRowH);
+            const int gw = std::max(px(80), text_width(t.steerGraph) + px(24));
+            /* (the value as wide as "Linear" in the language, or -100) */
+            const int vw = std::max({px(kValueW), text_width_of(t.steerCurveValue, tr(L"Linear")) + px(6),
+                                     text_width_of(t.steerCurveValue, L"-100") + px(6)});
+            const int curveW = std::max(px(60), sliderW + px(kValueW) - vw - gw - px(kGap));
+            panel::place(t.list, t.steerCurveLabel, x, ry + px(4), calLabelW, px(20));
+            panel::place(t.list, t.steerCurve, x + calLabelW, ry, curveW, px(kSliderH));
+            panel::place(t.list, t.steerCurveValue, x + calLabelW + curveW + px(kValueGap), ry + px(4), vw, px(20));
+            panel::place(t.list, t.steerGraph, x + calLabelW + curveW + px(kValueGap) + vw, ry, gw, px(kSlotH));
+            ry += px(kRowH);
+        }
         panel::place(t.list, t.live, x, ry + px(4), cw - 2 * x, px(kLiveH));
-        panel::place(t.list, t.note, x, ry + px(4) + px(kLiveH), cw - 2 * x, noteH);
+        ry += px(kLiveH);
+        if (wheel) {
+            /* PC (2026-11-20): the force feedback, under the live view */
+            ry += px(4);
+            for (int i = 0; i < 3; i++, ry += px(kRowH)) {
+                panel::place(t.list, t.ffbLabel[i], x, ry + px(4), calLabelW, px(20));
+                panel::place(t.list, t.ffb[i], x + calLabelW, ry, sliderW, px(kSliderH));
+                panel::place(t.list, t.ffbValue[i], x + calLabelW + sliderW + px(kValueGap), ry + px(4), px(kValueW),
+                             px(20));
+            }
+            panel::place(t.list, t.ffbLabel[kFfbInvert], x, ry + px(4), calLabelW, px(20));
+            panel::place(t.list, t.ffbInvert, x + calLabelW, ry, std::min(px(120), cw - x - calLabelW - x),
+                         px(kComboListH));
+            ry += px(kRowH);
+            /* PC (2026-11-22): the FFB loss workaround, as Invert */
+            panel::place(t.list, t.ffbLossLabel, x, ry + px(4), calLabelW, px(20));
+            panel::place(t.list, t.ffbLoss, x + calLabelW, ry, std::min(px(120), cw - x - calLabelW - x),
+                         px(kComboListH));
+            ry += px(kRowH);
+            /* the tests: their label, then a row of three buttons as wide as
+             * the widest's text (the whole width theirs: a translation's
+             * runs longer) */
+            panel::place(t.list, t.ffbTestLabel, x, ry + px(4), cw - 2 * x, px(20));
+            ry += px(kRowH) - px(4);
+            int bw = px(110);
+            for (HWND b : t.ffbTest)
+                bw = std::max(bw, text_width(b) + px(24));
+            bw = std::min(bw, (cw - 2 * x - (kTestCount - 1) * px(kGap)) / kTestCount);
+            for (int k = 0; k < kTestCount; k++)
+                panel::place(t.list, t.ffbTest[k], x + k * (bw + px(kGap)), ry, bw, px(kSlotH));
+            ry += px(kRowH);
+            panel::place(t.list, t.ffbStatus, x, ry + px(2), cw - 2 * x, statusH);
+            ry += statusH;
+        }
+        panel::place(t.list, t.note, x, ry + px(4), cw - 2 * x, noteH);
     }
     InvalidateRect(t.page, nullptr, TRUE);
 }
@@ -1214,6 +1919,7 @@ void show(bool shown)
     if (!shown) {
         cancel_capture();
         cancel_hot_capture();
+        close_curve_window();               /* (PC 2026-11-20) */
         KillTimer(root, kTimer);
         sdl_stop();
         t.shown = false;
@@ -1237,6 +1943,7 @@ void command(int id, int code, HWND from)
         if (sel < 0 || sel >= kProfileCount || sel == t.prof)
             return;
         cancel_capture();
+        close_curve_window();               /* (PC 2026-11-20: the profile's it was) */
         t.prof = sel;
         load_profile();
         refresh();
@@ -1284,6 +1991,9 @@ void command(int id, int code, HWND from)
         defaults(t.prof, &d);
         memcpy(d.deadzone, t.p.deadzone, sizeof(d.deadzone));
         memcpy(d.device, t.p.device, sizeof(d.device));
+        memcpy(d.ffb, t.p.ffb, sizeof(d.ffb));  /* (PC 2026-11-20: the force feedback's kept too) */
+        d.steerFilter = t.p.steerFilter;        /* (PC 2026-11-20: the steering's too) */
+        d.steerCurve = t.p.steerCurve;
         t.p = d;
         save();
         refresh();
@@ -1309,6 +2019,57 @@ void command(int id, int code, HWND from)
         }
         return;
     }
+    /* PC (2026-11-20): a wheel's steering filter, its curve's window */
+    if (id == IDC_STEER_FILTER) {
+        if (code != CBN_SELCHANGE)
+            return;
+        const int sel = (int)SendMessageW(t.steerFilter, CB_GETCURSEL, 0, 0);
+        if (sel == 0 || sel == 1) {
+            t.p.steerFilter = sel == 0;
+            save();
+        }
+        return;
+    }
+    if (id == IDC_STEER_GRAPH) {
+        if (code == BN_CLICKED)
+            open_curve_window();
+        return;
+    }
+    /* PC (2026-11-20): a wheel's force feedback - Invert, a test (on the
+     * wheel the game takes for the profile, with the settings shown) */
+    if (id == IDC_FFB_INVERT) {
+        if (code != CBN_SELCHANGE)
+            return;
+        const int sel = (int)SendMessageW(t.ffbInvert, CB_GETCURSEL, 0, 0);
+        if (sel == 0 || sel == 1) {
+            t.p.ffb[kFfbInvert] = sel;
+            save();
+        }
+        return;
+    }
+    if (id == IDC_FFB_LOSS) {                   /* PC (2026-11-22): the FFB loss workaround */
+        if (code != CBN_SELCHANGE)
+            return;
+        const int sel = (int)SendMessageW(t.ffbLoss, CB_GETCURSEL, 0, 0);
+        if (sel == 0 || sel == 1) {
+            t.p.ffb[kFfbLossWorkaround] = sel;
+            save();
+        }
+        return;
+    }
+    if (id >= IDC_FFB_TEST0 && id < IDC_FFB_TEST0 + kTestCount) {
+        if (code != BN_CLICKED || !is_wheel(t.prof))
+            return;
+        const Snapshot s = snapshot();
+        const JoyState *j = wheel_device(s);
+        if (j == nullptr) {
+            t.testSeq = 0;
+            ffb_status(s);                  /* (no wheel connected) */
+            return;
+        }
+        t.testSeq = ask_test(j->id, id - IDC_FFB_TEST0, ffb_settings());
+        return;
+    }
     const int slot = id - IDC_SLOT0;
     if (slot >= 0 && slot < kMaxControls * kSlots && code == BN_CLICKED && slot / kSlots < control_count(t.prof))
         start_capture(slot / kSlots, slot % kSlots);
@@ -1316,6 +2077,23 @@ void command(int id, int code, HWND from)
 
 void slider(int id, int code)
 {
+    /* PC (2026-11-20): a wheel's steering curve (its window follows) */
+    if (id == IDC_STEER_CURVE) {
+        if (is_wheel(t.prof))
+            curve_set((int)SendMessageW(t.steerCurve, TBM_GETPOS, 0, 0), code != TB_THUMBTRACK);
+        return;
+    }
+    /* PC (2026-11-20): a wheel's force feedback's (as the dead zones') */
+    const int f = id - IDC_FFB0;
+    if (f >= 0 && f < 3) {
+        if (!is_wheel(t.prof))
+            return;
+        t.p.ffb[f] = std::clamp((int)SendMessageW(t.ffb[f], TBM_GETPOS, 0, 0), 0, ffb_max(f));
+        ffb_text(f, true);
+        if (code != TB_THUMBTRACK)
+            save();
+        return;
+    }
     const int i = id - IDC_DEADZONE0;
     if (i < 0 || i >= deadzone_count(t.prof))
         return;
@@ -1377,6 +2155,10 @@ bool timer(UINT_PTR id)
         if (s.devices != t.listed)
             fill_devices(s);
         live_text(s);
+        ffb_status(s);                      /* PC (2026-11-20) */
+        curve_live(s);                      /* PC (2026-11-20): the curve window's dot */
+    } else if (g_cw.wnd != nullptr) {
+        curve_live(snapshot());
     }
     return true;
 }
@@ -1590,6 +2372,16 @@ bool is_text(HWND c)
     /* (the sliders take the same brush for their background) */
     for (int i = 0; i < kDeadzones; i++)
         if (t.deadzoneValue[i] == c || t.deadzone[i] == c)
+            return true;
+    /* PC (2026-11-20): a wheel's force feedback's, its steering's */
+    if (c == t.ffbTestLabel || c == t.ffbStatus || c == t.steerFilterLabel || c == t.steerCurveLabel ||
+        c == t.steerCurveValue || c == t.steerCurve || c == t.ffbLossLabel)    /* (PC 2026-11-22: the workaround's) */
+        return true;
+    for (HWND h : t.ffbLabel)
+        if (h == c)
+            return true;
+    for (int i = 0; i < 3; i++)
+        if (t.ffbValue[i] == c || t.ffb[i] == c)
             return true;
     return false;
 }

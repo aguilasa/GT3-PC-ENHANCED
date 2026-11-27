@@ -497,8 +497,8 @@ void car_process_input(RaceCarDynamics *car, CarInput *in, CarCtrlOut *out)
     }
     if (speed < 0.0f)
         speed = 0.0f;
-    if (in->device == INPUT_DEV_DFP) {
-        lockMax = p->steerLock;             /* Lupo 2 (L2 0x001F98B4..0x001F98CC) */
+    if (in->device == INPUT_DEV_DFP || in->device == INPUT_DEV_WHEEL_DIRECT) {
+        lockMax = p->steerLock;             /* Lupo 2 (L2 0x001F98B4..0x001F98CC); PC (2026-11-20): the direct wheel too */
     } else if (in->device != INPUT_DEV_WHEEL) {
 #if ENH_PHYSICS_PAD_STEERING
         /* Lupo 2 (L2 0x001F97FC..0x001F9864, 0x001F98D8): the lowest class
@@ -541,8 +541,8 @@ void car_process_input(RaceCarDynamics *car, CarInput *in, CarCtrlOut *out)
             lockFollows = 0;
             break;
         }
-    } else if (in->device == INPUT_DEV_DFP) {
-        lockFollows = 0;                    /* Lupo 2 (L2 0x001F99B8) */
+    } else if (in->device == INPUT_DEV_DFP || in->device == INPUT_DEV_WHEEL_DIRECT) {
+        lockFollows = 0;                    /* Lupo 2 (L2 0x001F99B8); PC (2026-11-20): the direct wheel too */
     }
     lockMin = -lockMax;
 
@@ -608,8 +608,14 @@ void car_process_input(RaceCarDynamics *car, CarInput *in, CarCtrlOut *out)
             break;
         }
         st->steer = steer;
-    } else if (in->device == INPUT_DEV_DFP) {
-        /* Lupo 2 (L2 0x001F9B38..0x001F9B68): the full lock x the input */
+    } else if (in->device == INPUT_DEV_DFP || in->device == INPUT_DEV_WHEEL_DIRECT) {
+        /* Lupo 2 (L2 0x001F9B38..0x001F9B68): the full lock x the input.
+         * PC (2026-11-20, user: "add an option to disable it [the steering
+         * input filter], so steering is directly dictated by the wheel's
+         * steering input"): a wheel with its filter off too - its steering
+         * angle the full lock x the input, whatever the speed, at once (the
+         * ordinary wheel's above: the lock of steer1 over the speed, reached
+         * at 90 deg/s, following the front wheels' slide) */
         out->steerKind = STEER_KIND_WHEEL;
         st->steer = p->steerLock * ((f32)in->steer * INPUT_ONE);
     } else if ((u8)(in->device - INPUT_DEV_STICK) < 2) {   /* the stick, the pressure buttons */
@@ -740,8 +746,8 @@ void car_process_input(RaceCarDynamics *car, CarInput *in, CarCtrlOut *out)
                 out->reverse = 1;
         }
     }
-    if (key == THROTTLE_KEY_NONE && in->device == INPUT_DEV_WHEEL)
-        v = responseEval(&g_0049D060, v, NULL);
+    if (key == THROTTLE_KEY_NONE && (in->device == INPUT_DEV_WHEEL || in->device == INPUT_DEV_WHEEL_DIRECT))
+        v = responseEval(&g_0049D060, v, NULL); /* (PC 2026-11-20: the direct wheel's pedals as the wheel's) */
     st->throttle = v;
 
     /* ---- the brake */
@@ -759,7 +765,7 @@ void car_process_input(RaceCarDynamics *car, CarInput *in, CarCtrlOut *out)
         }
     } else {
         f32 x = (f32)in->brake * INPUT_ONE;     /* PC: no lift (the throttle's) */
-        if (in->device == INPUT_DEV_WHEEL)
+        if (in->device == INPUT_DEV_WHEEL || in->device == INPUT_DEV_WHEEL_DIRECT)    /* (PC 2026-11-20) */
             x = responseEval(&g_0049D070, x, NULL);
         st->brake = x;
     }

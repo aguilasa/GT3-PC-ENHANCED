@@ -12,7 +12,8 @@
 # .ipic to .png conversion), its texture library (src/engine/pgl/native/
 # gs_imgs.cpp, gs_tex*.cpp: the .imgs to PNG folders conversion) and SDL3,
 # delay-loaded as in the game, for the Controls tab's capture of gamepad and
-# wheel inputs (cmake/sdl3.cmake).
+# wheel inputs (cmake/sdl3.cmake) and (PC 2026-11-20) its force feedback
+# testers, through the game's src/platform/wheel_ffb.cpp.
 # Off Windows only its command line installer is built (below).
 # Included from src/CMakeLists.txt; also buildable on its own (Windows):
 #   tools\msvc.cmd cmake -S src/launcher -B build/launcher -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
@@ -30,7 +31,8 @@ endif()
 # Off Windows (included from src/CMakeLists.txt's GCC / Clang part): the
 # command line installer only, gt3launcher --install / --unpack
 # (main_posix.cpp; the window stays Windows'), with the install's files and
-# its conversions as below; the Win32 file calls they make on the platform
+# its conversions as below (a disc image may be a CHD there too: libchdr,
+# cmake/chd.cmake); the Win32 file calls they make on the platform
 # layer's files (win32_posix.cpp over platform/os/fs_posix.cpp), the demo
 # replays as a generated source (cmake/demos.cmake), the MP4 reader on
 # FFmpeg (mp4_movie_ffmpeg.cpp, cmake/ffmpeg.cmake: the song manager's .mp3
@@ -54,6 +56,7 @@ if(NOT WIN32)
         disc_files.cpp
         inflate.cpp
         iso9660.cpp
+        chd_image.cpp
         util.cpp
         volume.cpp
         music.cpp
@@ -90,7 +93,10 @@ if(NOT WIN32)
     target_compile_options(gt3launcher PRIVATE ${GT3_PLATFORM_FLOAT_OPTIONS})
     find_package(Threads REQUIRED)
     include(${GT3PC_ROOT}/cmake/ffmpeg.cmake)
-    target_link_libraries(gt3launcher PRIVATE gt3_sqlite gt3_lodepng gt3_ffmpeg Threads::Threads)
+    if(NOT TARGET gt3_chd)
+        include(${GT3PC_ROOT}/cmake/chd.cmake)
+    endif()
+    target_link_libraries(gt3launcher PRIVATE gt3_sqlite gt3_lodepng gt3_ffmpeg gt3_chd Threads::Threads)
     gt3pc_languages(gt3launcher)
     gt3pc_ffmpeg_licence(gt3launcher)
     return()
@@ -101,6 +107,9 @@ if(NOT TARGET gt3_sdl3)
 endif()
 if(NOT TARGET gt3_sqlite)
     include(${GT3PC_ROOT}/cmake/sqlite.cmake)
+endif()
+if(NOT TARGET gt3_chd)                      # (PC 2026-11-23: disc images stored as CHD files)
+    include(${GT3PC_ROOT}/cmake/chd.cmake)
 endif()
 
 add_executable(gt3launcher WIN32
@@ -115,6 +124,7 @@ add_executable(gt3launcher WIN32
     display.cpp
     inflate.cpp
     iso9660.cpp
+    chd_image.cpp
     util.cpp
     volume.cpp
     music.cpp
@@ -133,6 +143,8 @@ add_executable(gt3launcher WIN32
     pclog.cpp
     ${GT3PC_ROOT}/src/platform/input_map.cpp
     ${GT3PC_ROOT}/src/platform/os/fs_win.cpp
+    ${GT3PC_ROOT}/src/platform/wheel_ffb.cpp
+    ${GT3PC_ROOT}/src/platform/joy_names.cpp
     ${GT3PC_ROOT}/src/platform/save_folders.cpp
     ${GT3PC_ROOT}/src/engine/sound/native/bgm_files.cpp
     ${GT3PC_ROOT}/src/engine/sound/native/spu2_adpcm.cpp
@@ -157,9 +169,15 @@ add_executable(gt3launcher WIN32
 )
 target_compile_definitions(gt3launcher PRIVATE UNICODE _UNICODE)
 target_include_directories(gt3launcher PRIVATE ${GT3PC_ROOT}/src)
-target_link_libraries(gt3launcher PRIVATE comctl32 comdlg32 shell32 ole32 windowscodecs gt3_sdl3 gt3_sqlite)
+target_link_libraries(gt3launcher PRIVATE comctl32 comdlg32 shell32 ole32 windowscodecs gt3_sdl3 gt3_sqlite gt3_chd)
 add_custom_command(TARGET gt3launcher POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different ${GT3PC_SDL3_DLL} $<TARGET_FILE_DIR:gt3launcher>)
+# PC (2026-11-23): the third-party software's licence texts, licences\ beside
+# the executable (cmake/licences.cmake)
+if(NOT COMMAND gt3pc_licences)
+    include(${GT3PC_ROOT}/cmake/licences.cmake)
+endif()
+gt3pc_licences(gt3launcher)
 # (the background art and the mods window's default picture: resources,
 # decoded by WIC)
 set_property(SOURCE gt3launcher.rc APPEND PROPERTY OBJECT_DEPENDS

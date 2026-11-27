@@ -49,6 +49,10 @@ public:
      * out of the race; the port's wheel spring follows it (on with 1).
      * Callers: RaceBase::setPausedState, RacePS2Base::virtual_41. */
     void setMode(int mode);
+    /* PC (2026-11-20): a live race begins - the notice when this input's
+     * player plays with the wheel and GT3's own Force Feedback option is off
+     * (game/app/pc_ffb.h).  Caller: RacePS2Base::virtual_41. */
+    void pcFfbNotice();
     void resetLap(u32 startTime);               /* 0x00210668 lap->reset(); startTime (ghost_record_start: (clock + 50) / 3) is not read */
     int  isLapFinished();                       /* 0x00210690 */
     void recordLap(const CarInput *in);         /* 0x002106B0 */

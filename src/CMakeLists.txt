@@ -182,11 +182,14 @@ if(NOT MSVC)
         platform/host_file.cpp
         platform/disc_image.cpp
         launcher/iso9660.cpp
+        launcher/chd_image.cpp
         launcher/volume.cpp
         launcher/inflate.cpp
         launcher/util.cpp
         platform/input_map.cpp
         platform/wheel.cpp
+        platform/wheel_ffb.cpp
+        platform/joy_names.cpp
         platform/clutch_input.cpp
         platform/debug_camera.cpp
         platform/memcard.cpp
@@ -246,11 +249,13 @@ if(NOT MSVC)
     endif()
     include(${GT3PC_ROOT}/cmake/sqlite.cmake)
     include(${GT3PC_ROOT}/cmake/lodepng.cmake)
+    # the disc images stored as CHD files: libchdr (cmake/chd.cmake)
+    include(${GT3PC_ROOT}/cmake/chd.cmake)
     # DXVK-native's D3D11 and DXGI: a system package, else the i686 build in
     # ~/opt/i386 (cmake/dxvk.cmake)
     include(${GT3PC_ROOT}/cmake/dxvk.cmake)
     find_package(Threads REQUIRED)
-    target_link_libraries(gt3_platform PUBLIC gt3_sqlite gt3_lodepng SDL3::SDL3 gt3_dxvk Threads::Threads
+    target_link_libraries(gt3_platform PUBLIC gt3_sqlite gt3_lodepng gt3_chd SDL3::SDL3 gt3_dxvk Threads::Threads
         ${CMAKE_DL_LIBS})
     # the native SPU2 / BGM player (standard C++, its own options), with the
     # platform layer's SSE2 floating point
@@ -348,6 +353,7 @@ add_library(gt3_platform STATIC
     # disc...): the launcher's own readers of the image and its volume
     platform/disc_image.cpp
     launcher/iso9660.cpp
+    launcher/chd_image.cpp
     launcher/volume.cpp
     launcher/inflate.cpp
     launcher/util.cpp
@@ -357,6 +363,8 @@ add_library(gt3_platform STATIC
     platform/gamepad.cpp
     platform/input_map.cpp
     platform/wheel.cpp
+    platform/wheel_ffb.cpp
+    platform/joy_names.cpp
     platform/clutch_input.cpp
     platform/debug_camera.cpp
     platform/memcard.cpp
@@ -403,6 +411,11 @@ target_link_libraries(gt3_platform PUBLIC gt3_sdl3)
 # library (cmake/sqlite.cmake) ----------------------------------------------------
 include(${GT3PC_ROOT}/cmake/sqlite.cmake)
 target_link_libraries(gt3_platform PUBLIC gt3_sqlite)
+
+# ---- disc images stored as CHD files (PC 2026-11-23): libchdr, a static
+# library (cmake/chd.cmake; src/launcher/chd_image.*) ----------------------------
+include(${GT3PC_ROOT}/cmake/chd.cmake)
+target_link_libraries(gt3_platform PUBLIC gt3_chd)
 
 # ---- the sound: the native SPU2 / BGM player (standard C++, its own options:
 # not the decomp's prelude, guarded statics) and the output above (kernel
@@ -466,4 +479,8 @@ include(${GT3PC_ROOT}/cmake/languages.cmake)
 gt3pc_languages(gt3pc)
 add_custom_command(TARGET gt3pc POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different ${GT3PC_SDL3_DLL} $<TARGET_FILE_DIR:gt3pc>)
+# PC (2026-11-23): the third-party software's licence texts, licences\ beside
+# the executables (SDL3, SQLite, libchdr and what it carries)
+include(${GT3PC_ROOT}/cmake/licences.cmake)
+gt3pc_licences(gt3pc)
 add_subdirectory(launcher)

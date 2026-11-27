@@ -32,6 +32,8 @@
 #include "game/enhanced.h"                      /* ENH_CAMERA_ZOOM_BUTTON (the cameras' switch) */
 #include "game/app/pc_frame.h"                  /* PC: pc_replay_speed_buttons */
 #include "game/app/pc_clutch.h"                 /* PC (2026-11-09): the clutch mode's frames */
+#include "game/app/pc_ffb.h"                    /* PC (2026-11-20): the force feedback option's notice */
+#include "platform/input_map.h"                 /* PC (2026-11-20): the wheels' steering filter and curve */
 
 /* The configured functions 1..8 and their button bits (T413's .data
  * 0x002DFB18, writable in retail: .data, not .rodata). */
@@ -146,7 +148,8 @@ void RaceInput::read(CarInput *in)
         readWheel(in);
         /* PC (2026-11-09): the clutch mode's clutch and H-shifter gate of the
          * player, recorded with the frame (game/app/pc_clutch.h) */
-        pc_clutch_live_input(port, in, in->device == STEER_WHEEL || in->device == STEER_WHEEL_DFP);
+        pc_clutch_live_input(port, in, in->device == STEER_WHEEL || in->device == STEER_WHEEL_DFP ||
+                                           in->device == STEER_WHEEL_DIRECT);     /* (PC 2026-11-20) */
         rec.rec.record(in);
     }
 }
@@ -706,12 +709,30 @@ void RaceInput::readWheel(CarInput *in)
         in->steer = steer;
         in->flags |= CARINPUT_ANALOG_STEER;
     } else {
-        steer = (-(int)getAnalog(base) + 0x200) * 9;
+        /* PC (2026-11-20, user: "add an option to disable it, so steering is
+         * directly dictated by the wheel's steering input.  Also, a steering
+         * input curve"): the wheel's position (-1..1, + left) through the
+         * player's curve ([WheelN] SteeringCurve, platform/input_map.h
+         * apply_steer_curve) - before the input is recorded, so a replay or ghost
+         * steers as the race did; then, with the steering filter on, GT3's x 9
+         * (the car's lock at 8/9 of the wheel's travel: 0x200 x 9 = 0x1200,
+         * held to 0x1000) as STEER_WHEEL, off the whole travel to the full
+         * lock (x 8) as STEER_WHEEL_DIRECT (T342: the lock straight from it).
+         * Retail: steer = (0x200 - x) x 9, held to +-0x1000. */
+        const int player = port >= 0 && port <= 1 ? port : 0;
+        const bool filter = input_map::steer_filter(player);
+        f32 pos = (f32)(-(int)getAnalog(base) + 0x200) / 512.0f;
+        if (pos > 1.0f)
+            pos = 1.0f;
+        else if (pos < -1.0f)
+            pos = -1.0f;
+        pos = input_map::apply_steer_curve(pos, input_map::steer_curve(player));
+        steer = (int)(pos * (filter ? 0x1200 : 0x1000) + (pos < 0.0f ? -0.5f : 0.5f));
         if (steer < -0x1000)
             steer = -0x1000;
         else if (steer >= 0x1001)
             steer = 0x1000;
-        in->device = STEER_WHEEL;
+        in->device = filter ? STEER_WHEEL : STEER_WHEEL_DIRECT;
         in->steer = steer;
         in->flags |= CARINPUT_ANALOG_STEER;
     }
@@ -739,6 +760,24 @@ void RaceInput::setMode(int mode)
 {
     if (Control::port != NULL)
         Control::port->enableSpring(mode != 0);
+}
+
+/* PC (2026-11-20, user: "at the start of a race, an overlay popup should
+ * appear alerting the user if FFB is off and while it is taking inputs from
+ * the wheel device (Both connected under controller mode wouldn't pop
+ * this)"): a live human input whose device is the wheel - its Control a USB
+ * wheel's (T478: with both connected and [WheelN] Input=controller it is the
+ * pad's) - with the option sendVibration reads off: the notice. */
+void RaceInput::pcFfbNotice()
+{
+    if (enabled == 0 || replayMode != REPLAY_LIVE || port < 0 || port > 1)
+        return;
+    if (rawUSBType() == USB_WHEEL_NONE)
+        return;
+    if ((port == 0) ? getGameStatus()->getGameOptions()->forceFeedback1p
+                    : getGameStatus()->getGameOptions()->forceFeedback2p)
+        return;
+    pc_ffb_notice(port);
 }
 
 /* A disabled RaceInput (.data 0x002DFB58, zero-filled: an object with a

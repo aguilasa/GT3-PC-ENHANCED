@@ -149,6 +149,28 @@ msgstr "РАЗМЕР ТРАССЫ: %s (МИН.)"
 msgid "COURSE SIZE: %s"
 msgstr "РАЗМЕР ТРАССЫ: %s"
 
+#: src/game/app/pc_clutch.cpp
+msgid "H-SHIFTER IS OFF (PLAYER %d)"
+msgstr "H-ШИФТЕР ВЫКЛЮЧЕН (ИГРОК %d)"
+
+#: src/game/app/pc_clutch.cpp
+msgid ""
+"ITS GEARS ARE NOT READ: THE H-SHIFTER WORKS WITH A CLUTCH,\n"
+"AND NONE IS MAPPED. MAP ONE IN THE LAUNCHER'S CONTROLS TAB."
+msgstr ""
+"ЕГО ПЕРЕДАЧИ НЕ СЧИТЫВАЮТСЯ: H-ШИФТЕР РАБОТАЕТ СО СЦЕПЛЕНИЕМ,\n"
+"А ОНО НЕ НАЗНАЧЕНО. НАЗНАЧЬТЕ ЕГО НА ВКЛАДКЕ «УПРАВЛЕНИЕ» ЛАУНЧЕРА."
+
+#: src/game/app/pc_clutch.cpp
+msgid ""
+"ITS GEARS ARE NOT READ IN THIS RACE. TO USE IT, SET GEAR SHIFT\n"
+"BEHAVIOR TO REALISTIC + CLUTCH AND H-SHIFTER TO ON (GAME > EXTRAS).\n"
+"THE NEXT RACE ENTERED TAKES IT."
+msgstr ""
+"ЕГО ПЕРЕДАЧИ НЕ СЧИТЫВАЮТСЯ В ЭТОЙ ГОНКЕ. ЧТОБЫ ИСПОЛЬЗОВАТЬ ЕГО, ВЫБЕРИТЕ\n"
+"ПЕРЕКЛЮЧЕНИЕ ПЕРЕДАЧ: РЕАЛИСТИЧНО + СЦЕПЛЕНИЕ И H-ШИФТЕР: ВКЛ.\n"
+"(ИГРА > ДОПОЛНИТЕЛЬНО). ДЕЙСТВУЕТ СО СЛЕДУЮЩЕЙ ГОНКИ."
+
 #: src/game/app/pc_customcam.cpp
 msgid "CUSTOM CAMERA"
 msgstr "СВОЯ КАМЕРА"
@@ -297,6 +319,18 @@ msgstr "УГОЛ ОБЗОРА ОТЛАДОЧНОЙ КАМЕРЫ %.0f"
 msgid "CAMERA: %s"
 msgstr "КАМЕРА: %s"
 
+#: src/game/app/pc_ffb.cpp
+msgid "FORCE FEEDBACK IS OFF (PLAYER %d)"
+msgstr "ОТДАЧА ВЫКЛЮЧЕНА (ИГРОК %d)"
+
+#: src/game/app/pc_ffb.cpp
+msgid ""
+"THE GAME'S OWN FORCE FEEDBACK OPTION IS OFF: THE WHEEL\n"
+"GETS NO STEERING FORCE. TURN IT ON IN THE GAME'S OPTIONS."
+msgstr ""
+"ОПЦИЯ ОТДАЧИ В ИГРЕ ВЫКЛЮЧЕНА: РУЛЬ НЕ ПОЛУЧАЕТ\n"
+"УСИЛИЯ. ВКЛЮЧИТЕ ЕЁ В НАСТРОЙКАХ ИГРЫ."
+
 #: src/game/app/pc_frame.cpp
 msgid "REPLAY SPEED %s"
 msgstr "СКОРОСТЬ ПОВТОРА %s"
@@ -425,6 +459,26 @@ msgstr "Кокпит"
 msgid "Bumper"
 msgstr "Бампер"
 
+#: src/launcher/chd_image.cpp
+msgid "this CHD file needs a parent CHD file, which is not supported"
+msgstr "этому файлу CHD нужен родительский файл CHD, что не поддерживается"
+
+#: src/launcher/chd_image.cpp
+msgid "the CHD file could not be read (%s)"
+msgstr "не удалось прочитать файл CHD (%s)"
+
+#: src/launcher/chd_image.cpp src/launcher/iso9660.cpp
+msgid "the file could not be opened (%s)"
+msgstr "не удалось открыть файл (%s)"
+
+#: src/launcher/chd_image.cpp
+msgid "this CHD file holds no disc image (no ISO 9660 file system)"
+msgstr "в этом файле CHD нет образа диска (нет файловой системы ISO 9660)"
+
+#: src/launcher/chd_image.cpp src/launcher/iso9660.cpp
+msgid "it ends too early (is the image complete?)"
+msgstr "он заканчивается слишком рано (образ полный?)"
+
 #: src/launcher/controls.cpp
 msgid "Mapping"
 msgstr "Назначения"
@@ -436,6 +490,22 @@ msgstr "Калибровка"
 #: src/launcher/controls.cpp
 msgid "Hotkeys"
 msgstr "Гор. клавиши"
+
+#: src/launcher/controls.cpp
+msgid "Push left"
+msgstr "Толчок влево"
+
+#: src/launcher/controls.cpp
+msgid "Push right"
+msgstr "Толчок вправо"
+
+#: src/launcher/controls.cpp src/platform/input_map.cpp
+msgid "Centering spring"
+msgstr "Центровка"
+
+#: src/launcher/controls.cpp src/launcher/ui.cpp
+msgid "Off"
+msgstr "Выкл."
 
 #: src/launcher/controls.cpp
 msgid "Press a key, click or move the mouse... (Esc)"
@@ -546,6 +616,83 @@ msgstr ""
 "Левый стик %+.2f %+.2f    Правый стик %+.2f %+.2f    L2 %.2f    R2 %.2f"
 
 #: src/launcher/controls.cpp
+msgid "Force feedback: the centering spring is on for 4 seconds - turn the wheel: it pulls back to the center."
+msgstr "Отдача: центрирующая пружина включена на 4 секунды - поверните руль: он вернётся к центру."
+
+#: src/launcher/controls.cpp
+msgid "Force feedback: %s..."
+msgstr "Отдача: %s..."
+
+#: src/launcher/controls.cpp
+msgid "Force feedback: the centering spring test is over."
+msgstr "Отдача: проверка центрирующей пружины закончена."
+
+#: src/launcher/controls.cpp
+msgid "Force feedback: done. If the wheel turned the other way, set Invert force feedback to On."
+msgstr "Отдача: готово. Если руль повернулся в другую сторону, включите «Обратная отдача» (Вкл.)."
+
+#: src/launcher/controls.cpp
+msgid "Force feedback: the wheel is not connected."
+msgstr "Отдача: руль не подключён."
+
+#: src/launcher/controls.cpp
+msgid "Force feedback: SDL finds none on this wheel."
+msgstr "Отдача: SDL не находит её у этого руля."
+
+#: src/launcher/controls.cpp
+msgid "Force feedback: it could not be opened (%s)."
+msgstr "Отдача: её не удалось открыть (%s)."
+
+#: src/launcher/controls.cpp
+msgid "Force feedback: this wheel plays no constant force (the steering force)."
+msgstr "Отдача: этот руль не воспроизводит постоянную силу (силу на руле)."
+
+#: src/launcher/controls.cpp
+msgid "Force feedback: this wheel plays no spring (the centering spring)."
+msgstr "Отдача: этот руль не воспроизводит пружину (центрирующую пружину)."
+
+#: src/launcher/controls.cpp
+msgid "Force feedback: no wheel connected."
+msgstr "Отдача: руль не подключён."
+
+#: src/launcher/controls.cpp
+msgid "Force feedback: available. The tests play on the wheel with the settings above, as the game would."
+msgstr "Отдача: доступна. Проверки работают на руле с настройками выше, как в игре."
+
+#: src/launcher/controls.cpp
+msgid "Linear"
+msgstr "Линейная"
+
+#: src/launcher/controls.cpp
+msgid "Steering curve: linear"
+msgstr "Кривая руля: линейная"
+
+#: src/launcher/controls.cpp
+msgid "Steering curve: %+d, a fast ramp up"
+msgstr "Кривая руля: %+d, быстрый рост"
+
+#: src/launcher/controls.cpp
+msgid "Steering curve: %+d, a slow ramp up"
+msgstr "Кривая руля: %+d, медленный рост"
+
+#: src/launcher/controls.cpp
+msgid "Steering"
+msgstr "Поворот"
+
+#: src/launcher/controls.cpp
+msgid "Wheel input"
+msgstr "Положение руля"
+
+#: src/launcher/controls.cpp
+msgid "Steering curve - %s"
+msgstr "Кривая руля - %s"
+
+#: src/launcher/controls.cpp src/launcher/mod_manager.cpp src/launcher/save_manager.cpp
+#: src/launcher/song_manager.cpp src/launcher/texture_manager.cpp
+msgid "Close"
+msgstr "Закрыть"
+
+#: src/launcher/controls.cpp
 msgid "Player 2 plays with"
 msgstr "Игрок 2 использует"
 
@@ -608,6 +755,34 @@ msgstr "%s (щелчок: отмена)"
 #: src/launcher/controls.cpp
 msgid "Reset to defaults"
 msgstr "Сбросить по умолчанию"
+
+#: src/launcher/controls.cpp
+msgid "Steering filter"
+msgstr "Фильтр руля"
+
+#: src/launcher/controls.cpp
+msgid "On (the game's)"
+msgstr "Вкл. (как в игре)"
+
+#: src/launcher/controls.cpp
+msgid "Off (direct)"
+msgstr "Выкл. (напрямую)"
+
+#: src/launcher/controls.cpp
+msgid "Steering curve"
+msgstr "Кривая руля"
+
+#: src/launcher/controls.cpp
+msgid "Graph..."
+msgstr "График..."
+
+#: src/launcher/controls.cpp src/launcher/ui.cpp
+msgid "On"
+msgstr "Вкл."
+
+#: src/launcher/controls.cpp
+msgid "Force feedback test"
+msgstr "Проверка отдачи"
 
 #: src/launcher/controls.cpp
 msgid "The wheel (while both are connected)"
@@ -1097,14 +1272,6 @@ msgid "If the game is running from this disc image, close it first."
 msgstr "Если игра запущена с этого образа диска, сначала закройте её."
 
 #: src/launcher/iso9660.cpp
-msgid "it ends too early (is the image complete?)"
-msgstr "он заканчивается слишком рано (образ полный?)"
-
-#: src/launcher/iso9660.cpp
-msgid "the file could not be opened (%s)"
-msgstr "не удалось открыть файл (%s)"
-
-#: src/launcher/iso9660.cpp
 msgid "the file could not be read (%s)"
 msgstr "не удалось прочитать файл (%s)"
 
@@ -1271,11 +1438,6 @@ msgstr "&Открыть папку"
 #: src/launcher/mod_manager.cpp
 msgid "Create &template..."
 msgstr "Создать &шаблон..."
-
-#: src/launcher/mod_manager.cpp src/launcher/save_manager.cpp src/launcher/song_manager.cpp
-#: src/launcher/texture_manager.cpp
-msgid "Close"
-msgstr "Закрыть"
 
 #: src/launcher/music.cpp
 msgid "The music conversion was stopped (%d files converted); it carries on with the rest the next time."
@@ -2332,10 +2494,6 @@ msgid "%s (the window's size)"
 msgstr "%s (размер окна)"
 
 #: src/launcher/ui.cpp
-msgid "Off"
-msgstr "Выкл."
-
-#: src/launcher/ui.cpp
 msgid "%s (not side by side)"
 msgstr "%s (не рядом)"
 
@@ -2418,6 +2576,18 @@ msgstr "2 кадра"
 #: src/launcher/ui.cpp
 msgid "3 frames"
 msgstr "3 кадра"
+
+#: src/launcher/ui.cpp
+msgid "Game clock sync"
+msgstr "Синхронизация часов игры"
+
+#: src/launcher/ui.cpp
+msgid "Variable"
+msgstr "Переменная"
+
+#: src/launcher/ui.cpp
+msgid "Static NTSC"
+msgstr "Постоянная NTSC"
 
 #: src/launcher/ui.cpp
 msgid "Menu aspect"
@@ -2518,10 +2688,6 @@ msgstr "Пониженное (75%%)"
 #: src/launcher/ui.cpp
 msgid "Menu wheels"
 msgstr "Колёса из меню"
-
-#: src/launcher/ui.cpp
-msgid "On"
-msgstr "Вкл."
 
 #: src/launcher/ui.cpp
 msgid "Race wheels from"
@@ -2714,6 +2880,10 @@ msgstr "Диски без ограничений"
 #: src/launcher/ui.cpp
 msgid "Buy cars not for sale"
 msgstr "Покупка любых машин"
+
+#: src/launcher/ui.cpp
+msgid "New cars without assists"
+msgstr "Новые авто без TCS/ASM"
 
 #: src/launcher/ui.cpp
 msgid "Cars in a race"
@@ -3864,6 +4034,22 @@ msgid "Clutch pedal dead zone"
 msgstr "Мёртвая зона: сцепление"
 
 #: src/platform/input_map.cpp
+msgid "Force feedback strength"
+msgstr "Сила отдачи"
+
+#: src/platform/input_map.cpp
+msgid "Minimum force"
+msgstr "Минимальная сила"
+
+#: src/platform/input_map.cpp
+msgid "Invert force feedback"
+msgstr "Обратная отдача"
+
+#: src/platform/input_map.cpp
+msgid "Force feedback loss workaround"
+msgstr "Обход пропадания отдачи"
+
+#: src/platform/input_map.cpp
 msgid "South (A / Cross)"
 msgstr "Нижняя (A / Крестик)"
 
@@ -4352,6 +4538,14 @@ msgid "ORIGINAL"
 msgstr "ОРИГИНАЛ"
 
 #: src/platform/settings_menu.cpp
+msgid "STATIC NTSC"
+msgstr "ПОСТОЯННАЯ NTSC"
+
+#: src/platform/settings_menu.cpp
+msgid "VARIABLE"
+msgstr "ПЕРЕМЕННАЯ"
+
+#: src/platform/settings_menu.cpp
 msgid "1 FRAME"
 msgstr "1 КАДР"
 
@@ -4386,6 +4580,18 @@ msgstr "MPH, МИЛИ"
 #: src/platform/settings_menu.cpp
 msgid "CUSTOM"
 msgstr "СВОЯ"
+
+#: src/platform/settings_menu.cpp
+msgid "FORCE FEEDBACK STRENGTH"
+msgstr "СИЛА ОТДАЧИ"
+
+#: src/platform/settings_menu.cpp
+msgid "FORCE FEEDBACK STRENGTH (IN-GAME OPTION IS OFF)"
+msgstr "СИЛА ОТДАЧИ (ОПЦИЯ В ИГРЕ ВЫКЛЮЧЕНА)"
+
+#: src/platform/settings_menu.cpp
+msgid "LINEAR"
+msgstr "ЛИНЕЙНАЯ"
 
 #: src/platform/settings_menu.cpp
 msgid "%d%% MIRRORED"
@@ -4594,6 +4800,80 @@ msgstr ""
 "ENTER: 0%."
 
 #: src/platform/settings_menu.cpp
+msgid ""
+"ON: THE GAME'S - THE CAR'S STEERING LOCK SHRINKS WITH SPEED,\n"
+"FOLLOWS A SLIDE AND CHANGES AT 90 DEGREES A SECOND.\n"
+"OFF: THE CAR'S FULL LOCK FOLLOWS THE WHEEL DIRECTLY,\n"
+"ITS WHOLE TRAVEL."
+msgstr ""
+"ВКЛ.: КАК В ИГРЕ - УГОЛ ПОВОРОТА ПАДАЕТ СО СКОРОСТЬЮ,\n"
+"СЛЕДУЕТ ЗА ЗАНОСОМ И МЕНЯЕТСЯ НА 90 ГРАДУСОВ В СЕКУНДУ.\n"
+"ВЫКЛ.: ПОЛНЫЙ УГОЛ СЛЕДУЕТ ЗА РУЛЁМ НАПРЯМУЮ,\n"
+"ПО ВСЕМУ ЕГО ХОДУ."
+
+#: src/platform/settings_menu.cpp
+msgid ""
+"THE WHEEL'S STEERING INPUT SHAPED:\n"
+"BELOW 0 A SLOW RAMP UP (FINE NEAR\n"
+"THE CENTER, STEEP AT THE END),\n"
+"0 LINEAR, ABOVE 0 A FAST RAMP UP.\n"
+"ENTER: LINEAR."
+msgstr ""
+"ФОРМА ВХОДА РУЛЯ:\n"
+"НИЖЕ 0 МЕДЛЕННЫЙ РОСТ (ТОЧНО\n"
+"У ЦЕНТРА, КРУТО В КОНЦЕ),\n"
+"0 ЛИНЕЙНАЯ, ВЫШЕ 0 БЫСТРЫЙ\n"
+"РОСТ. ENTER: ЛИНЕЙНАЯ."
+
+#: src/platform/settings_menu.cpp
+msgid ""
+"HOW STRONG THE GAME'S STEERING FORCE IS ON THE WHEEL.\n"
+"0%: NONE. ENTER: 25%. THE GAME'S OWN FORCE FEEDBACK\n"
+"OPTION (ITS OPTIONS MENU) MUST BE ON TOO."
+msgstr ""
+"НАСКОЛЬКО СИЛЬНО УСИЛИЕ ИГРЫ НА РУЛЕ.\n"
+"0%: НЕТ. ENTER: 25%. ОПЦИЯ ОТДАЧИ В САМОЙ ИГРЕ\n"
+"(ЕЁ МЕНЮ НАСТРОЕК) ТОЖЕ ДОЛЖНА БЫТЬ ВКЛЮЧЕНА."
+
+#: src/platform/settings_menu.cpp
+msgid ""
+"THE PULL TO THE CENTER IN THE MENUS (NONE IN A RACE).\n"
+"100%: THE GAME'S OWN. ENTER: 100%."
+msgstr ""
+"ВОЗВРАТ К ЦЕНТРУ В МЕНЮ (НЕТ В ГОНКЕ).\n"
+"100%: КАК В ИГРЕ. ENTER: 100%."
+
+#: src/platform/settings_menu.cpp
+msgid ""
+"THE LEAST FORCE THE WHEEL GETS ONCE THERE IS ANY,\n"
+"FOR A WHEEL THAT DOES NOT MOVE BELOW IT. ENTER: 0%."
+msgstr ""
+"НАИМЕНЬШАЯ СИЛА НА РУЛЕ, КОГДА ОНА ЕСТЬ, ДЛЯ РУЛЯ,\n"
+"КОТОРЫЙ НЕ ДВИГАЕТСЯ ПРИ МЕНЬШЕЙ. ENTER: 0%."
+
+#: src/platform/settings_menu.cpp
+msgid ""
+"EVERY FORCE THE OTHER WAY, FOR A WHEEL PUSHED AWAY\n"
+"FROM THE CENTER (THE LAUNCHER'S TESTS SHOW WHICH)."
+msgstr ""
+"КАЖДАЯ СИЛА В ДРУГУЮ СТОРОНУ, ДЛЯ РУЛЯ, ТОЛКАЕМОГО\n"
+"ОТ ЦЕНТРА (ПРОВЕРКИ В ЛАУНЧЕРЕ ЭТО ПОКАЖУТ)."
+
+#: src/platform/settings_menu.cpp
+msgid ""
+"FOR A WHEEL WHOSE FORCES STOP PARTWAY INTO A RACE:\n"
+"THE STEERING FORCE IS STARTED AGAIN EACH TIME THE GAME\n"
+"SENDS IT (PCSX2'S 'WORKAROUND FOR INTERMITTENT FFB LOSS').\n"
+"LEAVE IT OFF UNLESS NEEDED: ON MANY WHEELS IT MAKES THE\n"
+"FORCES VAGUE OR CUT OUT."
+msgstr ""
+"ДЛЯ РУЛЯ, ЧЬИ УСИЛИЯ ПРОПАДАЮТ ПОСРЕДИ ГОНКИ:\n"
+"УСИЛИЕ РУЛЯ ЗАПУСКАЕТСЯ ЗАНОВО КАЖДЫЙ РАЗ, КОГДА ИГРА\n"
+"ЕГО ПОСЫЛАЕТ (В PCSX2: 'WORKAROUND FOR INTERMITTENT FFB LOSS').\n"
+"ВКЛЮЧАЙТЕ ТОЛЬКО ПРИ НЕОБХОДИМОСТИ: НА МНОГИХ РУЛЯХ\n"
+"УСИЛИЯ СТАНОВЯТСЯ РАЗМЫТЫМИ ИЛИ ПРОПАДАЮТ."
+
+#: src/platform/settings_menu.cpp
 msgid "DISPLAY"
 msgstr "ЭКРАН"
 
@@ -4642,6 +4922,24 @@ msgstr ""
 "1-3: VSYNC ВКЛ., ЧИСЛО БУФЕРИЗУЕМЫХ КАДРОВ.\n"
 "1 КАДР ДАЁТ САМУЮ РОВНУЮ СМЕНУ КАДРОВ,\n"
 "ЕСЛИ КОМПЬЮТЕР УДЕРЖИВАЕТ ЧАСТОТУ КАДРОВ."
+
+#: src/platform/settings_menu.cpp
+msgid "GAME CLOCK SYNC"
+msgstr "СИНХРОНИЗАЦИЯ ЧАСОВ ИГРЫ"
+
+#: src/platform/settings_menu.cpp
+msgid ""
+"VARIABLE: GAME SPEED CHANGES BY A TINY AMOUNT TO IMPROVE FRAME PACING \n"
+" WHILE FPS IS CLOSE TO THE TICK RATE: \n"
+"59.90-60.10 / 119.80-120.20 / 179.70-180.30 / 239.60-240.40\n"
+"\n"
+"STATIC NTSC: STATIC 59.94 HZ TICK RATE (ACCURATE GAME SPEED)"
+msgstr ""
+"ПЕРЕМЕННАЯ: СКОРОСТЬ ИГРЫ ЧУТЬ МЕНЯЕТСЯ РАДИ РОВНОЙ СМЕНЫ КАДРОВ,\n"
+"ПОКА FPS БЛИЗОК К ЧАСТОТЕ ТИКОВ:\n"
+"59,90-60,10 / 119,80-120,20 / 179,70-180,30 / 239,60-240,40\n"
+"\n"
+"ПОСТОЯННАЯ NTSC: ПОСТОЯННАЯ ЧАСТОТА ТИКОВ 59,94 ГЦ (ТОЧНАЯ СКОРОСТЬ ИГРЫ)"
 
 #: src/platform/settings_menu.cpp
 msgid "FRAME RATE CAP"
@@ -5605,6 +5903,18 @@ msgid "CARS NOT FOR SALE IN SHOWROOMS CAN BE BOUGHT"
 msgstr "МОЖНО КУПИТЬ МАШИНЫ, КОТОРЫЕ НЕ ПРОДАЮТСЯ В АВТОСАЛОНАХ"
 
 #: src/platform/settings_menu.cpp
+msgid "NEW CARS WITHOUT ASSISTS"
+msgstr "НОВЫЕ АВТО БЕЗ TCS/ASM"
+
+#: src/platform/settings_menu.cpp
+msgid ""
+"CARS ADDED TO THE GARAGE GET THEIR TCS AND ASM SET TO 0.\n"
+"CARS ALREADY IN THE GARAGE KEEP THEIR SETTINGS."
+msgstr ""
+"У МАШИН, ДОБАВЛЯЕМЫХ В ГАРАЖ, TCS И ASM СТАВЯТСЯ НА 0.\n"
+"МАШИНЫ, УЖЕ СТОЯЩИЕ В ГАРАЖЕ, СОХРАНЯЮТ СВОИ НАСТРОЙКИ."
+
+#: src/platform/settings_menu.cpp
 msgid "CARS IN A RACE"
 msgstr "МАШИН В ГОНКЕ"
 
@@ -5901,6 +6211,30 @@ msgstr "МЁРТВАЯ ЗОНА ТОРМОЗА"
 #: src/platform/settings_menu.cpp
 msgid "CLUTCH PEDAL DEAD ZONE"
 msgstr "МЁРТВАЯ ЗОНА СЦЕПЛЕНИЯ"
+
+#: src/platform/settings_menu.cpp
+msgid "STEERING FILTER"
+msgstr "ФИЛЬТР РУЛЯ"
+
+#: src/platform/settings_menu.cpp
+msgid "STEERING CURVE"
+msgstr "КРИВАЯ РУЛЯ"
+
+#: src/platform/settings_menu.cpp
+msgid "CENTERING SPRING"
+msgstr "ЦЕНТРИРУЮЩАЯ ПРУЖИНА"
+
+#: src/platform/settings_menu.cpp
+msgid "MINIMUM FORCE"
+msgstr "МИНИМАЛЬНАЯ СИЛА"
+
+#: src/platform/settings_menu.cpp
+msgid "INVERT FORCE FEEDBACK"
+msgstr "ОБРАТНАЯ ОТДАЧА"
+
+#: src/platform/settings_menu.cpp
+msgid "FORCE FEEDBACK LOSS WORKAROUND"
+msgstr "ОБХОД ПРОПАДАНИЯ ОТДАЧИ"
 
 #: src/platform/settings_menu.cpp
 msgid "PLAYER 2'S DEVICE, CONTROLLER AND WHEEL."
@@ -6341,6 +6675,32 @@ msgstr "ВВЕРХ / ВНИЗ  ВЛЕВО / ВПРАВО  %s%sESC ЗАКРЫТЬ
 #: src/platform/texture_menu.cpp
 msgid "TEXTURES"
 msgstr "ТЕКСТУРЫ"
+
+#~ msgid ""
+#~ "FOR A WHEEL WHOSE FORCES STOP PARTWAY INTO A RACE:\n"
+#~ "THE FORCES ARE STARTED AGAIN WITH EACH UPDATE.\n"
+#~ "LEAVE IT OFF IF THE FORCES DO NOT STOP: ON SOME\n"
+#~ "WHEELS IT MAKES THEM JUDDER."
+#~ msgstr ""
+#~ "ДЛЯ РУЛЯ, ЧЬИ УСИЛИЯ ПРОПАДАЮТ ПОСРЕДИ ГОНКИ:\n"
+#~ "УСИЛИЯ ЗАПУСКАЮТСЯ ЗАНОВО ПРИ КАЖДОМ ОБНОВЛЕНИИ.\n"
+#~ "ОСТАВЬТЕ ВЫКЛЮЧЕННЫМ, ЕСЛИ УСИЛИЯ НЕ ПРОПАДАЮТ: НА\n"
+#~ "НЕКОТОРЫХ РУЛЯХ ОНИ НАЧИНАЮТ ДЁРГАТЬСЯ."
+
+#~ msgid "On (the game's: the lock shrinks with speed)"
+#~ msgstr "Вкл. (как в игре: угол падает со скоростью)"
+
+#~ msgid "Off (direct: the wheel's whole travel to full lock)"
+#~ msgstr "Выкл. (напрямую: весь ход руля до полного угла)"
+
+#~ msgid ""
+#~ "VARIABLE: THE GAME'S CLOCK FOLLOWS THE DISPLAY\n"
+#~ "AT 59.90-60.10 HZ OR 2-4 TIMES THAT: STEADY PACING.\n"
+#~ "STATIC NTSC: THE ORIGINAL 59.94 HZ ALWAYS."
+#~ msgstr ""
+#~ "ПЕРЕМЕННАЯ: ЧАСЫ ИГРЫ СЛЕДУЮТ ЗА ДИСПЛЕЕМ\n"
+#~ "ПРИ 59,90-60,10 ГЦ ИЛИ В 2-4 РАЗА БОЛЬШЕ: РОВНЫЙ ТЕМП.\n"
+#~ "ПОСТОЯННАЯ NTSC: ВСЕГДА ИСХОДНЫЕ 59,94 ГЦ."
 
 #~ msgid "Test"
 #~ msgstr "TestRU"

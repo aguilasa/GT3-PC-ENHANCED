@@ -189,6 +189,9 @@
  *                           at their database price, and the trade buys a
  *                           guest garage's car the game would refuse (game/
  *                           app/pc_car_shop.h; Game > Extras, GAME > EXTRAS)
+ *   NewCarAssistsOff=off    on: a car added to the garage gets its TCS and
+ *                           ASM settings at 0 (PC 2026-11-23; Game > Extras,
+ *                           GAME > EXTRAS)
  *   CourseRandomizer=off    on: the GT mode's career races on a random course
  *                           of their discipline; extended: on any course of
  *                           the database, whatever its surface (tarmac,
@@ -402,6 +405,15 @@ void set_menu_aspect(MenuAspect a);
  * the game (the settings menu), written at once. */
 bool movie_stretch();
 void set_movie_stretch(bool on);
+/* PC (2026-11-19, user request: "Make this a setting in the display
+ * category: 'Game Clock Sync': Variable, Static NTSC.  Variable is the
+ * default"): [Display] GameClockSync=variable | ntsc - variable, the game's
+ * vblanks on the display's when it refreshes at 59.90 .. 60.10 Hz or 2, 3, 4
+ * times that (platform/gpu.cpp's watcher, scheduler.h set_display_clock);
+ * ntsc, the PS2's 59.94 Hz always.  Any thread; changed in the game (the
+ * settings menu: at once), written at once. */
+bool game_clock_variable();
+void set_game_clock_variable(bool on);
 /* The race HUD canvas's widest aspect w:h, changed in the game (held to
  * 4:3 .. 32:9), written to gt3pc.ini at once. */
 void set_hud_max_aspect(int w, int h);
@@ -793,6 +805,18 @@ void set_unrestricted_wheels(bool on);
  * thread. */
 bool buy_not_for_sale();
 void set_buy_not_for_sale(bool on);
+
+/* PC (2026-11-23, user: "An option to toggle driving assists for new cars
+ * added to the garage: When a car is added, the game has a default TCS and
+ * ASM setting.  While the setting is on, cars that get added have those 2
+ * settings set to 0 / off"): [Game] NewCarAssistsOff - a car added to the
+ * garage (bought new or used, won, the debug fill's) gets its TCS and ASM
+ * settings at their least, the settings page's 0 (GameStatus::addCar, T429);
+ * the cars already there keep theirs.  Read at start (the launcher's Game >
+ * Extras); set (the settings menu's GAME > EXTRAS): written at once, taken
+ * by the next car added.  Any thread. */
+bool new_car_assists_off();
+void set_new_car_assists_off(bool on);
 
 /* PC (2026-11-14): [Challenges] MoneyDecay, CarDecay, CourseShrinkage: the
  * challenge modes (game/app/pc_challenge.h).  Read at start (the launcher's

@@ -50,7 +50,8 @@
  * records realistic (its RaceInfoBlock's spare bytes: 'R', 5 at +0x16, between
  * the laps' and the time's parts, game/app/pc_course_pick.cpp) and its
  * replay runs it (none recorded: original).  The attract mode's demos run the
- * original.  A ghost runs in its race's (a ghost saved with the other one is
+ * original; a demo file (a licence test's, a time trial's) the limiter it
+ * recorded (PC 2026-11-20: pc_rev_cut_demo).  A ghost runs in its race's (a ghost saved with the other one is
  * logged: pc_rev_cut_check_ghost).  The cut's time left is the car's own,
  * from DynCar_resetState (T330) on.
  *
@@ -93,6 +94,14 @@ void pc_rev_cut_load(RaceOrganization *org, const RaceInfoBlock *blk);
 /* RaceBase::virtual_19 (a ghost into a running race): logged when blk was
  * recorded with the other limiter than org's. */
 void pc_rev_cut_check_ghost(const RaceInfoBlock *blk, const RaceOrganization *org);
+/* PC (2026-11-20): load_demo_setting (T102): a demo file's recording (a
+ * licence test's, a time trial's) plays on the session's own race, whose
+ * limiter came from the settings - org's cars run the limiter blk recorded
+ * (none: the original) instead, until RaceBase::virtual_8 starts a race that
+ * is not a replay (pc_rev_cut_demo_end: the race's own again).  The user:
+ * the demos drove otherwise with Rev cut behavior on Realistic. */
+void pc_rev_cut_demo(const RaceOrganization *org, const RaceInfoBlock *blk);
+void pc_rev_cut_demo_end(const RaceOrganization *org);
 
 /* DynCar_resetState: car's cut over. */
 void pc_rev_cut_reset(RaceCarState *car);

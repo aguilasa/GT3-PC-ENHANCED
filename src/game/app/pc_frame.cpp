@@ -13,6 +13,7 @@
 #include "platform/settings.h"                  /* the frame cap */
 #include "game/app/pc_sound.h"                  /* pc_sound_tick */
 #include "game/app/pc_units.h"                  /* pc_units_sync */
+#include "game/app/pc_ffb.h"                    /* PC (2026-11-20): pc_ffb_sync */
 #include "platform/frame_step.h"                /* the tick step (F5 / F6) */
 #include "platform/ui_text.h"                   /* PC (2026-11-16): the interface's languages */
 
@@ -160,6 +161,7 @@ int pc_frame_interpolating(void)
 void pc_frame_tick_begin(void)
 {
     pc_units_sync();                            /* a units setting changed (game/app/pc_units.h) */
+    pc_ffb_sync();                              /* PC (2026-11-20): GT3's force feedback option (game/app/pc_ffb.h) */
     s_request = 0;
     s_replayRun = 0;
     s_tickNo++;
@@ -257,14 +259,38 @@ void pc_frame_render_end(void)
     g_pcTickFrame = 1;
 }
 
+/* PC (2026-11-19): one frame per vblank paced by Present - vsync on and the
+ * game's vblanks on the display's (platform/scheduler.h set_display_clock):
+ * no wait for the game's own vblank, Present's for the display's alone, and
+ * the ticks those of the grid at its return (pc_frame_ticks).  User report:
+ * "Vertical sync ... at 60hz in-game with a 60hz monitor, all settings have
+ * saw-tooth, or spikes ... every several seconds": two waits a frame - the
+ * game's 59.94 Hz vblank, then the display's in Present - whose phases
+ * drifted round each other: Present's wait grew and shrank (the log's 0.5 ..
+ * 9.6 ms a frame) and a frame missed its vblank each time round, the next
+ * catching up two ticks.  Locked to the display, two waits still left the
+ * frame what Present's wait did not take (the harness: 3.7 ms of 16.7).
+ * (A display at 2 .. 4 times the game's rate - the game's vblanks on every
+ * 2nd .. 4th of its - not: a frame per display vblank would be 2 .. 4 a tick;
+ * those wait for the game's vblank, or draw the frames between the ticks.) */
+static int present_paced(void)
+{
+    return !s_interpolating && settings::vsync() > 0 && !pacing::high_refresh() && sched::display_clock_on();
+}
+/* ... and a frame of it that found no tick due: the next waits for the
+ * game's vblank after all (a Present that does not wait - vsync forced off
+ * outside the game - spinning frames without ticks) */
+static int s_pacedIdle;
+
 /* The wait itself (pc_frame_wait, timed as the frame monitor's PACE). */
 static void frame_wait(void)
 {
     /* One frame per vblank: the original's wait (a vblank since the last).
      * Between the ticks: the frames go as fast as they are drawn (Present
      * waits for the GPU or the display, outside the game CPU, or for a
-     * limiter hooked into it). */
-    if (!s_interpolating)
+     * limiter hooked into it).  PC (2026-11-19): with vsync on the display's
+     * vblanks, Present's wait alone (present_paced). */
+    if (!s_interpolating && (!present_paced() || s_pacedIdle))
         gfx_vsync(-1);
     /* The frame time cap: the frames at least that far apart, by time (one
      * per vblank: only a cap longer than the tick waits more; the ticks due
@@ -373,7 +399,7 @@ int pc_frame_ticks(void)
     }
     const double now = sched::now_seconds();
     double clock = now;
-    if (s_interpolating) {
+    if (s_interpolating || present_paced()) {   /* (PC 2026-11-19: paced by Present: its return too) */
         /* The frame clock: when the last Present returned (in the frame
          * just ended).  The frame drawn next is presented the same way one
          * frame later (T002 flips to it after drawing the following one),
@@ -433,6 +459,7 @@ int pc_frame_ticks(void)
         gfx_vsync_mark();
     if (n == 0 && !s_interpolating)
         s_statNoTick++;
+    s_pacedIdle = n == 0 && present_paced();    /* PC (2026-11-19) */
 
     if (s_statStart == 0.0) {
         s_statStart = now;
@@ -447,14 +474,16 @@ int pc_frame_ticks(void)
         /* (PC: the rate, what paces it, and Present's wait a frame: the GPU,
          * the display or a limiter outside the game when the cap does not) */
         const double wait = pacing::present_wait_total();
-        if (s_interpolating || s_statCaught != 0 || s_statDropped != 0 || s_statNoTick != 0) {
+        if (s_interpolating || present_paced() || s_statCaught != 0 || s_statDropped != 0 || s_statNoTick != 0) {
             char mode[48];
             char noTick[40] = "";
             if (s_statNoTick != 0)
                 snprintf(noTick, sizeof(noTick), ", %u frame%s without one", s_statNoTick,
                          s_statNoTick == 1 ? "" : "s");
             const double cap = cap_period();
-            if (!s_interpolating)
+            if (present_paced())
+                snprintf(mode, sizeof(mode), "one per display vblank, paced by Present");    /* PC (2026-11-19) */
+            else if (!s_interpolating)
                 snprintf(mode, sizeof(mode), "one per vblank");
             else if (cap > 0.0)
                 snprintf(mode, sizeof(mode), "capped at %.1f", 1.0 / cap);

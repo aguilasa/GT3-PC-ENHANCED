@@ -8,6 +8,8 @@
 #include "game/car/physics/T342_car_input.h"            /* CarInput, CarCtrlOut */
 #include "game/car/physics/T343_gear_select.h"          /* car_select_gear, car_set_gear */
 #include "platform/clutch_input.h"
+#include "platform/settings_menu.h"                     /* PC (2026-11-23): notice (the H-shifter's) */
+#include "platform/ui_text.h"                           /* ... in the interface's language */
 
 #include <math.h>
 #include <stdio.h>
@@ -125,15 +127,47 @@ const char *ordinal(int gear)
 
 } // namespace
 
+/* PC (2026-11-23): the notice that the H-shifter is off (pc_clutch.h) - each
+ * player's armed for the race being driven */
+static std::atomic<int> g_hsAlert[2];
+
+void pc_hshifter_alert_arm(int on)
+{
+    g_hsAlert[0].store(on, std::memory_order_relaxed);
+    g_hsAlert[1].store(on, std::memory_order_relaxed);
+}
+
+/* (noClutch: the race reads the H-shifters, the player has no clutch mapped) */
+static void hshifter_alert(int player, bool noClutch)
+{
+    if (player < 0 || player > 1 || g_hsAlert[player].load(std::memory_order_relaxed) == 0 ||
+        !clutch_input::gate_held(player))
+        return;
+    g_hsAlert[player].store(0, std::memory_order_relaxed);
+    char text[640];
+    snprintf(text, sizeof(text), "%s\n%s", trf("H-SHIFTER IS OFF (PLAYER %d)", player + 1).c_str(),
+             noClutch ? tr("ITS GEARS ARE NOT READ: THE H-SHIFTER WORKS WITH A CLUTCH,\nAND NONE IS MAPPED. MAP ONE "
+                           "IN THE LAUNCHER'S CONTROLS TAB.")
+                      : tr("ITS GEARS ARE NOT READ IN THIS RACE. TO USE IT, SET GEAR SHIFT\nBEHAVIOR TO REALISTIC + "
+                           "CLUTCH AND H-SHIFTER TO ON (GAME > EXTRAS).\nTHE NEXT RACE ENTERED TAKES IT."));
+    settings_menu::notice(text, 8.0);
+    printf("PC: H-shifter: player %d holds an H-shifter input, and the race does not read it (%s): the notice shown\n",
+           player + 1, noClutch ? "no clutch mapped" : "the gear shift behavior is not Realistic + Clutch with H-shifter on");
+}
+
 void pc_clutch_live_input(int player, CarInput *in, int wheel)
 {
     const int flags = pc_shift_live_flags();
-    if (!(flags & PC_SHIFT_RACE_CLUTCH))
+    if (!(flags & PC_SHIFT_RACE_CLUTCH)) {
+        hshifter_alert(player, false);      /* PC (2026-11-23) */
         return;
+    }
     /* the device's clutch, else the other one's (a clutch on the keyboard
      * of the controller's profile with a wheel...); -1 none */
     const f32 a = clutch_input::clutch(player, wheel != 0), b = clutch_input::clutch(player, wheel == 0);
     const f32 v = a > b ? a : b;
+    if (v < 0.0f || !(flags & PC_SHIFT_RACE_HSHIFTER))
+        hshifter_alert(player, v < 0.0f && (flags & PC_SHIFT_RACE_HSHIFTER) != 0);  /* PC (2026-11-23) */
     if (v < 0.0f)
         return;                             /* (no clutch: the realistic mode's; the shift buttons kept) */
     in->unk_3 = (u8)(1 + lroundf((v > 1.0f ? 1.0f : v) * 254.0f));

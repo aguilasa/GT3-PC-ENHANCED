@@ -57,6 +57,7 @@
 #include "game/save/pc_save_ext.h"              /* PC: the 8.0 stream's keyed lists */
 #include "game/app/pc_new_game.h"               /* PC: a new game's money, garage and unlocks (init) */
 #include "game/app/pc_challenge.h"              /* PC (2026-11-14): the money decay's licence pause */
+#include "game/app/pc_car_shop.h"               /* PC (2026-11-23): pc_new_car_assists (addCar) */
 #include <vector>                               /* PC: the garage's heap blocks */
 
 using namespace gt2k_game;
@@ -364,6 +365,7 @@ GarageCar *GameStatus::findFreeCar()
 //   so the running car (when there is one) moves down one place.
 void GameStatus::addCar(GarageCar *car)
 {
+    pc_new_car_assists(car);                /* PC (2026-11-23): [Game] NewCarAssistsOff (game/app/pc_car_shop.h) */
     car->index = carSerial;
     carSerial++;
     carList.prepend(car);

@@ -235,6 +235,12 @@ void USBSteeringPort::init(int usbPort)
     clearReport();
     resetCentring();
     actCount = 4;
+    /* PC (2026-11-20): the four forces at FF_NONE from the start - left 0
+     * (never set before the first stopActuators), the first update after
+     * the wheel connected sent 0 in all four slots, each the most force
+     * (four times it summed): with the force feedback played, a jolt to one
+     * side at each connect (the replay harness's first command, +4.03) */
+    stopActuators();
     /* The enhanced engine (backend.md B3): a Logitech wheel's menu dead
      * zone until onConnect sets the device's (an i.LINK node's port, whose
      * report comes from the link frames, never connects locally) */
@@ -463,8 +469,14 @@ void USBSteeringPort::update()
                 centred = 1;
                 printf("[enhanced] wheel %d: Driving Force Pro (USB type 4)\n", usbPort);
             } else if (centred == 0) {
-                autoCentre(&state);
-                return;
+                /* PC (2026-11-20): the PC's wheel (engine/input/usb_pc.cpp: a
+                 * Driving Force, 0xC294, built from the player's) needs no
+                 * centring sequence - its steering is mapped and calibrated
+                 * already, and centreLeft / centreRight are read nowhere - and
+                 * with its force feedback played on the real wheel now, the
+                 * sequence's full forces swung it to both locks at each
+                 * connect.  autoCentre stays for the record. */
+                centred = 1;
             }
         }
         onConnect(info.vendor, info.product);

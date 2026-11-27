@@ -108,6 +108,28 @@ int gate(int player)
     return g.gate;
 }
 
+/* PC (2026-11-23) */
+bool gate_held(int player)
+{
+    if (player < 0 || player > 1 || menus_hold())
+        return false;
+    const Profile &p = profile(kHShifter1 + player);
+    bool any = false;
+    for (int c = 0; c < kHShifterControlCount && !any; c++)
+        any = maps(p, c);
+    if (!any)
+        return false;
+    gamepad::Devices devs;
+    gamepad::read_devices(&devs);
+    const Sources s = {nullptr, nullptr, window::key_down, 0, devs.src, devs.count};
+    for (int c = 0; c < kHShifterControlCount; c++) {
+        const Binding &b = p.map[c][0];
+        if (b.source != Source::none && value(b, s) >= 0.5f)
+            return true;
+    }
+    return false;
+}
+
 void clutch_text(int profile, char *out, int n)
 {
     if (n <= 0)

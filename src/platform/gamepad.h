@@ -92,6 +92,13 @@ struct Joystick {
 };
 /* The joystick of Wheel 1 / 2 (`wheel' 0, 1); false when none. */
 bool read_wheel(int wheel, Joystick *out);
+/* PC (2026-11-20): the force feedback GT3 asks of wheel `wheel' (platform/
+ * wheel_ffb.h; played on the SDL thread with [WheelN]'s settings): the
+ * steering force -1..1, + to the right - the game sends it every tick, and
+ * one not sent again for kForceHoldMs is let go (a paused or stalled game
+ * leaves no force on the wheel) - and the centring spring. */
+void set_wheel_force(int wheel, float force);
+void set_wheel_spring(int wheel, bool on, float k, float clip);
 
 /* The devices bindings name (input_map::device_name; ids 1 .. count, at
  * most input_map::kMaxDevices), as read.  src: the bindings' view of them

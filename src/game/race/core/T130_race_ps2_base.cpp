@@ -94,6 +94,7 @@
 #include "game/app/pc_headcam.h"                /* PC (2026-11-11): the cockpit camera's menu model */
 #include "game/app/pc_menu_wheels.h"            /* PC (2026-11-12): the menu wheels */
 #include "game/app/pc_menu_tires.h"             /* PC (2026-11-13): the menu tyres */
+#include "game/app/pc_clutch.h"                 /* PC (2026-11-23): pc_hshifter_alert_arm */
 
 /* ======================================================================== */
 /* RaceEntryPS2                                                             */
@@ -221,11 +222,17 @@ void RacePS2Base::virtual_41(int replay, int retry)
         virtual_43();
         /* The enhanced engine (backend.md B2): no wheel spring while racing
          * (Lupo 2 L2 0x0017B168) */
-        if (replayMode == RACE_LIVE)
+        if (replayMode == RACE_LIVE) {
             virtual_25()->setMode(0);
+            virtual_25()->pcFfbNotice();    /* PC (2026-11-20): GT3's force feedback option off (game/app/pc_ffb.h) */
+        }
+        /* PC (2026-11-23): the notice that the H-shifter is off, while a race
+         * is driven (game/app/pc_clutch.h) */
+        pc_hshifter_alert_arm(replayMode == RACE_LIVE);
         render_set_object(this);
         while (virtual_38() != RACE_SIGNAL_END)
             ;
+        pc_hshifter_alert_arm(0);
         start_transition(TRANSITION_DELAY_FADEOUT, 1);
         gfx_vsync(2);
         virtual_35();
@@ -639,6 +646,8 @@ void RaceBGMPS2::update()
         if (song == 0)
             continue;
         const BgmMarkers *m = song->markers;
+        if (m == NULL)                      /* PC (2026-11-23): a track without marker data (see play) */
+            continue;
         if (m->count[ch] == 0)
             continue;
 
@@ -750,8 +759,21 @@ void RaceBGMPS2::play(int code, int arg)
     if (isDemoWithoutPreview() != 0) {
         stop();
         if (code == BGM_GROUP_SONGS) {
-            bgm_play(BGM_GROUP_DEMO, 0, scale, 0);
-            song = bgm_get_tracks(BGM_GROUP_DEMO).tracks;
+            /* PC (2026-11-23): a music list without a demo track - the
+             * European disc's (bgm/ads.inf group 16 is empty there): no
+             * music, no song.  Retail took track 0 of the empty list all
+             * the same, whatever lay there (the next group's memory): its
+             * marker pointer was 0, which the PS2 reads without a fault and
+             * the PC does not - a user's crash in update() when the attract
+             * demo started from the title screen (RaceBGMPS2::update+0x94,
+             * reading 0xC), reproduced with the European data. */
+            const BgmTrackList demo = bgm_get_tracks(BGM_GROUP_DEMO);
+            if (demo.tracks != NULL && demo.count != 0) {
+                bgm_play(BGM_GROUP_DEMO, 0, scale, 0);
+                song = demo.tracks;
+            } else {
+                song = 0;
+            }
             resetMarkers(scale);
         }
         return;

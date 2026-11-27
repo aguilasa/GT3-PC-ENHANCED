@@ -93,6 +93,15 @@ class CarCtrlOut;
  * clutch mode (wheel: the frame is the wheel's; the other device's clutch
  * counts too). */
 void pc_clutch_live_input(int player, CarInput *in, int wheel);
+/* PC (2026-11-23, user: "H-Shifter is turned off Alert: If H-shifter inputs
+ * are being pressed by the user, popup alerting the user the H-shifter mode
+ * is off"): RacePS2Base::virtual_41 arms it as a race is driven (on 1) and
+ * drops it after (0); armed, pc_clutch_live_input shows each player's notice
+ * once, at the first frame one of their H-shifter's bindings is held while
+ * the race does not read it - the gear shift behavior not Realistic + Clutch,
+ * H-shifter off, or no clutch mapped (the gates go with the clutch).  8 s,
+ * and a log line. */
+void pc_hshifter_alert_arm(int on);
 /* car_process_input (T342): the frame's clutch and gate for car (a gate
  * code dropped from out->shift in any race). */
 void pc_clutch_input(RaceCarState *car, const CarInput *in, CarCtrlOut *out);

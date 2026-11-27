@@ -702,6 +702,12 @@ int run_gtmode_race(void)
     do {
         org->backgroundMode = 1;
         race->virtual_8(RACE_DEMO);
+        /* PC (2026-11-20): nor on a course without a pit lane (the free
+         * session starts the player's car in the pit, pit_slot_pose): a
+         * mod's course the randomizer or the forcer drew (GT3's courses
+         * without one are its dirt courses, caught above) */
+        if (race->dc->hasPitLane() == 0)
+            menuArgs.setNoFreeSession(1);
         int action = run_short_menu(&params, &menuArgs, shown, NULL, NULL);   /* s0 */
         race->virtual_35();
         org->backgroundMode = 0;
@@ -869,6 +875,17 @@ int run_championship(int cont)
             menuArgs.laps = pc_race_laps(org, info.db.event->numberOfLaps);    /* PC: the laps run (pc_course_pick.h) */
             org->backgroundMode = 1;
             race->virtual_8(RACE_DEMO);
+            /* PC (2026-11-20): no free session on a dirt course (GT3's rule
+             * for its rally events, run_gtmode_race above) nor on a course
+             * without a pit lane (lines 3 and 4; the conductor read them for
+             * the race just started): the free session starts the player's
+             * car in the pit (DynamicsConductorFreePractice start type 6,
+             * pit_slot_pose).  GT3's championships never ran on dirt; the
+             * course randomizer's extended setting (and the forcer) can draw
+             * a rally course for a session, whose free session crashed (user
+             * report).  Each session: its own course. */
+            menuArgs.setNoFreeSession(org->raceDB->getCourseKind(org->raceDB->course) == COURSE_KIND_DIRT ||
+                                      race->dc->hasPitLane() == 0);
             int action = run_short_menu(&params, &menuArgs, shown, NULL, NULL);   /* s0 */
             race->virtual_35();
             org->backgroundMode = 0;

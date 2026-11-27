@@ -8,6 +8,7 @@
 #include "platform/system_menu.h"
 #include "platform/window.h"
 
+#include <atomic>
 #include <math.h>
 #include <string.h>
 
@@ -98,6 +99,31 @@ bool connected(int port)
 bool preferred(int port)
 {
     return !plays_with_controller(port);
+}
+
+/* PC (2026-11-20) */
+void force(int port, float f)
+{
+    gamepad::set_wheel_force(port, f);
+}
+
+void spring(int port, bool on, float k, float clip)
+{
+    gamepad::set_wheel_spring(port, on, k, clip);
+}
+
+/* PC (2026-11-20) */
+static std::atomic<bool> g_gameFfb[2] = {{true}, {true}};
+
+void set_game_ffb(int port, bool on)
+{
+    if (port >= 0 && port <= 1)
+        g_gameFfb[port].store(on, std::memory_order_relaxed);
+}
+
+bool game_ffb(int port)
+{
+    return port < 0 || port > 1 || g_gameFfb[port].load(std::memory_order_relaxed);
 }
 
 } // namespace wheel

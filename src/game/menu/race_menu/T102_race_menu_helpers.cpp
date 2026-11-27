@@ -67,6 +67,8 @@
 #include "engine/pgl/G001_flare.h"                /* gfx_vsync */
 #include "libc.h"                           /* strcpy, strlen, memset */
 #include "game/menu/race_menu/shortmenu_internal.h"                           /* g_003514F0, the named constants */
+#include "game/app/pc_rev_cut.h"                 /* PC (2026-11-20): pc_rev_cut_demo */
+#include "game/app/pc_shift.h"                   /* PC (2026-11-20): pc_shift_demo */
 
 using namespace gt2k_menu;
 
@@ -715,6 +717,11 @@ int load_demo_setting(RaceSolitaire *race, const char *name)
     if (setting.unseal(data, file.read) == 0)
         return 0;
     RaceInfoBlock *info = (RaceInfoBlock *)(data + *(int *)data);
+    /* PC (2026-11-20): the rev limiter and the gear shifts the demo was
+     * recorded with (none: the original) while it plays, not the settings'
+     * the session's race took (game/app/pc_rev_cut.h, pc_shift.h) */
+    pc_rev_cut_demo(race->org, info);
+    pc_shift_demo(race->org, info);
     race->org->setEntrySteeringAssist(info->slots[0].steeringAssist, 0);
     race->org->setEntryTransmission(info->slots[0].transmission != 0, 0);
     race->org->setEntryAsm(info->slots[0].assistAsm != 0, 0);

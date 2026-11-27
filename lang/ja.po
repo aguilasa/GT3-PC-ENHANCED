@@ -149,6 +149,28 @@ msgstr "コースサイズ：%s（下限）"
 msgid "COURSE SIZE: %s"
 msgstr "コースサイズ：%s"
 
+#: src/game/app/pc_clutch.cpp
+msgid "H-SHIFTER IS OFF (PLAYER %d)"
+msgstr "Hシフターがオフ（プレイヤー %d）"
+
+#: src/game/app/pc_clutch.cpp
+msgid ""
+"ITS GEARS ARE NOT READ: THE H-SHIFTER WORKS WITH A CLUTCH,\n"
+"AND NONE IS MAPPED. MAP ONE IN THE LAUNCHER'S CONTROLS TAB."
+msgstr ""
+"ギアは読み取られません: Hシフターにはクラッチが必要です。\n"
+"ランチャーの「操作」タブでクラッチを割り当ててください。"
+
+#: src/game/app/pc_clutch.cpp
+msgid ""
+"ITS GEARS ARE NOT READ IN THIS RACE. TO USE IT, SET GEAR SHIFT\n"
+"BEHAVIOR TO REALISTIC + CLUTCH AND H-SHIFTER TO ON (GAME > EXTRAS).\n"
+"THE NEXT RACE ENTERED TAKES IT."
+msgstr ""
+"このレースではギアは読み取られません。\n"
+"「シフトチェンジの挙動」をリアル + クラッチ、Hシフターをオンに\n"
+"してください（ゲーム > エクストラ）。次のレースから有効です。"
+
 #: src/game/app/pc_customcam.cpp
 msgid "CUSTOM CAMERA"
 msgstr "カスタムカメラ"
@@ -297,6 +319,18 @@ msgstr "デバッグカメラ視野角 %.0f"
 msgid "CAMERA: %s"
 msgstr "カメラ：%s"
 
+#: src/game/app/pc_ffb.cpp
+msgid "FORCE FEEDBACK IS OFF (PLAYER %d)"
+msgstr "フォースフィードバックがオフ（プレイヤー %d）"
+
+#: src/game/app/pc_ffb.cpp
+msgid ""
+"THE GAME'S OWN FORCE FEEDBACK OPTION IS OFF: THE WHEEL\n"
+"GETS NO STEERING FORCE. TURN IT ON IN THE GAME'S OPTIONS."
+msgstr ""
+"ゲーム側のフォースフィードバック設定がオフです：\n"
+"ステアリングに力が出ません。ゲームのオプションでオンにしてください。"
+
 #: src/game/app/pc_frame.cpp
 msgid "REPLAY SPEED %s"
 msgstr "リプレイ速度 %s"
@@ -425,6 +459,26 @@ msgstr "コックピット"
 msgid "Bumper"
 msgstr "バンパー"
 
+#: src/launcher/chd_image.cpp
+msgid "this CHD file needs a parent CHD file, which is not supported"
+msgstr "この CHD ファイルには親 CHD ファイルが必要ですが、対応していません"
+
+#: src/launcher/chd_image.cpp
+msgid "the CHD file could not be read (%s)"
+msgstr "CHD ファイルを読み込めませんでした（%s）"
+
+#: src/launcher/chd_image.cpp src/launcher/iso9660.cpp
+msgid "the file could not be opened (%s)"
+msgstr "ファイルを開けませんでした（%s）"
+
+#: src/launcher/chd_image.cpp
+msgid "this CHD file holds no disc image (no ISO 9660 file system)"
+msgstr "この CHD ファイルにはディスクイメージがありません（ISO 9660 ファイルシステムがありません）"
+
+#: src/launcher/chd_image.cpp src/launcher/iso9660.cpp
+msgid "it ends too early (is the image complete?)"
+msgstr "途中で終わっています（イメージは完全ですか？）"
+
 #: src/launcher/controls.cpp
 msgid "Mapping"
 msgstr "割り当て"
@@ -436,6 +490,22 @@ msgstr "キャリブレーション"
 #: src/launcher/controls.cpp
 msgid "Hotkeys"
 msgstr "ホットキー"
+
+#: src/launcher/controls.cpp
+msgid "Push left"
+msgstr "左へ押す"
+
+#: src/launcher/controls.cpp
+msgid "Push right"
+msgstr "右へ押す"
+
+#: src/launcher/controls.cpp src/platform/input_map.cpp
+msgid "Centering spring"
+msgstr "センタリングスプリング"
+
+#: src/launcher/controls.cpp src/launcher/ui.cpp
+msgid "Off"
+msgstr "オフ"
 
 #: src/launcher/controls.cpp
 msgid "Press a key, click or move the mouse... (Esc)"
@@ -546,6 +616,83 @@ msgstr ""
 "左スティック %+.2f %+.2f    右スティック %+.2f %+.2f    L2 %.2f    R2 %.2f"
 
 #: src/launcher/controls.cpp
+msgid "Force feedback: the centering spring is on for 4 seconds - turn the wheel: it pulls back to the center."
+msgstr "フォースフィードバック：センタリングスプリングが 4 秒間オンです。ハンドルを回すと中央に戻ります。"
+
+#: src/launcher/controls.cpp
+msgid "Force feedback: %s..."
+msgstr "フォースフィードバック：%s..."
+
+#: src/launcher/controls.cpp
+msgid "Force feedback: the centering spring test is over."
+msgstr "フォースフィードバック：センタリングスプリングのテストが終わりました。"
+
+#: src/launcher/controls.cpp
+msgid "Force feedback: done. If the wheel turned the other way, set Invert force feedback to On."
+msgstr "フォースフィードバック：完了。ハンドルが逆に回った場合は「フォースフィードバックを反転」をオンにしてください。"
+
+#: src/launcher/controls.cpp
+msgid "Force feedback: the wheel is not connected."
+msgstr "フォースフィードバック：ステアリングが接続されていません。"
+
+#: src/launcher/controls.cpp
+msgid "Force feedback: SDL finds none on this wheel."
+msgstr "フォースフィードバック：SDL はこのステアリングに見つけられません。"
+
+#: src/launcher/controls.cpp
+msgid "Force feedback: it could not be opened (%s)."
+msgstr "フォースフィードバック：開けませんでした（%s）。"
+
+#: src/launcher/controls.cpp
+msgid "Force feedback: this wheel plays no constant force (the steering force)."
+msgstr "フォースフィードバック：このステアリングは一定の力（ステアリングの力）を再生しません。"
+
+#: src/launcher/controls.cpp
+msgid "Force feedback: this wheel plays no spring (the centering spring)."
+msgstr "フォースフィードバック：このステアリングはスプリング（センタリングスプリング）を再生しません。"
+
+#: src/launcher/controls.cpp
+msgid "Force feedback: no wheel connected."
+msgstr "フォースフィードバック：ステアリングが接続されていません。"
+
+#: src/launcher/controls.cpp
+msgid "Force feedback: available. The tests play on the wheel with the settings above, as the game would."
+msgstr "フォースフィードバック：使用可能。テストは上の設定でゲームと同じようにステアリングに出力されます。"
+
+#: src/launcher/controls.cpp
+msgid "Linear"
+msgstr "リニア"
+
+#: src/launcher/controls.cpp
+msgid "Steering curve: linear"
+msgstr "ステアリングカーブ：リニア"
+
+#: src/launcher/controls.cpp
+msgid "Steering curve: %+d, a fast ramp up"
+msgstr "ステアリングカーブ：%+d（立ち上がりが速い）"
+
+#: src/launcher/controls.cpp
+msgid "Steering curve: %+d, a slow ramp up"
+msgstr "ステアリングカーブ：%+d（立ち上がりが遅い）"
+
+#: src/launcher/controls.cpp
+msgid "Steering"
+msgstr "ステア"
+
+#: src/launcher/controls.cpp
+msgid "Wheel input"
+msgstr "ハンドル入力"
+
+#: src/launcher/controls.cpp
+msgid "Steering curve - %s"
+msgstr "ステアリングカーブ - %s"
+
+#: src/launcher/controls.cpp src/launcher/mod_manager.cpp src/launcher/save_manager.cpp
+#: src/launcher/song_manager.cpp src/launcher/texture_manager.cpp
+msgid "Close"
+msgstr "閉じる"
+
+#: src/launcher/controls.cpp
 msgid "Player 2 plays with"
 msgstr "プレイヤー2の使用デバイス"
 
@@ -608,6 +755,34 @@ msgstr "%s（クリック：キャンセル）"
 #: src/launcher/controls.cpp
 msgid "Reset to defaults"
 msgstr "初期設定に戻す"
+
+#: src/launcher/controls.cpp
+msgid "Steering filter"
+msgstr "ステアリングフィルター"
+
+#: src/launcher/controls.cpp
+msgid "On (the game's)"
+msgstr "オン（ゲーム本来）"
+
+#: src/launcher/controls.cpp
+msgid "Off (direct)"
+msgstr "オフ（ダイレクト）"
+
+#: src/launcher/controls.cpp
+msgid "Steering curve"
+msgstr "ステアリングカーブ"
+
+#: src/launcher/controls.cpp
+msgid "Graph..."
+msgstr "グラフ..."
+
+#: src/launcher/controls.cpp src/launcher/ui.cpp
+msgid "On"
+msgstr "オン"
+
+#: src/launcher/controls.cpp
+msgid "Force feedback test"
+msgstr "フォースフィードバックのテスト"
 
 #: src/launcher/controls.cpp
 msgid "The wheel (while both are connected)"
@@ -1097,14 +1272,6 @@ msgid "If the game is running from this disc image, close it first."
 msgstr "このディスクイメージからゲームを実行中の場合は、先に終了してください。"
 
 #: src/launcher/iso9660.cpp
-msgid "it ends too early (is the image complete?)"
-msgstr "途中で終わっています（イメージは完全ですか？）"
-
-#: src/launcher/iso9660.cpp
-msgid "the file could not be opened (%s)"
-msgstr "ファイルを開けませんでした（%s）"
-
-#: src/launcher/iso9660.cpp
 msgid "the file could not be read (%s)"
 msgstr "ファイルを読み込めませんでした（%s）"
 
@@ -1271,11 +1438,6 @@ msgstr "フォルダーを開く(&O)"
 #: src/launcher/mod_manager.cpp
 msgid "Create &template..."
 msgstr "テンプレートを作成(&T)..."
-
-#: src/launcher/mod_manager.cpp src/launcher/save_manager.cpp src/launcher/song_manager.cpp
-#: src/launcher/texture_manager.cpp
-msgid "Close"
-msgstr "閉じる"
 
 #: src/launcher/music.cpp
 msgid "The music conversion was stopped (%d files converted); it carries on with the rest the next time."
@@ -2332,10 +2494,6 @@ msgid "%s (the window's size)"
 msgstr "%s（ウィンドウのサイズ）"
 
 #: src/launcher/ui.cpp
-msgid "Off"
-msgstr "オフ"
-
-#: src/launcher/ui.cpp
 msgid "%s (not side by side)"
 msgstr "%s（横並びではありません）"
 
@@ -2418,6 +2576,18 @@ msgstr "2 フレーム"
 #: src/launcher/ui.cpp
 msgid "3 frames"
 msgstr "3 フレーム"
+
+#: src/launcher/ui.cpp
+msgid "Game clock sync"
+msgstr "ゲームクロック同期"
+
+#: src/launcher/ui.cpp
+msgid "Variable"
+msgstr "可変"
+
+#: src/launcher/ui.cpp
+msgid "Static NTSC"
+msgstr "固定 NTSC"
 
 #: src/launcher/ui.cpp
 msgid "Menu aspect"
@@ -2518,10 +2688,6 @@ msgstr "軽減（75%%）"
 #: src/launcher/ui.cpp
 msgid "Menu wheels"
 msgstr "メニューのホイール"
-
-#: src/launcher/ui.cpp
-msgid "On"
-msgstr "オン"
 
 #: src/launcher/ui.cpp
 msgid "Race wheels from"
@@ -2714,6 +2880,10 @@ msgstr "ホイール制限解除"
 #: src/launcher/ui.cpp
 msgid "Buy cars not for sale"
 msgstr "非売車の購入"
+
+#: src/launcher/ui.cpp
+msgid "New cars without assists"
+msgstr "新しい車のアシストをオフ"
 
 #: src/launcher/ui.cpp
 msgid "Cars in a race"
@@ -3864,6 +4034,22 @@ msgid "Clutch pedal dead zone"
 msgstr "クラッチペダルのデッドゾーン"
 
 #: src/platform/input_map.cpp
+msgid "Force feedback strength"
+msgstr "フォースフィードバックの強さ"
+
+#: src/platform/input_map.cpp
+msgid "Minimum force"
+msgstr "最小の力"
+
+#: src/platform/input_map.cpp
+msgid "Invert force feedback"
+msgstr "フォースフィードバックを反転"
+
+#: src/platform/input_map.cpp
+msgid "Force feedback loss workaround"
+msgstr "フォースフィードバック消失の回避策"
+
+#: src/platform/input_map.cpp
 msgid "South (A / Cross)"
 msgstr "下ボタン（A / バツ）"
 
@@ -4352,6 +4538,14 @@ msgid "ORIGINAL"
 msgstr "オリジナル"
 
 #: src/platform/settings_menu.cpp
+msgid "STATIC NTSC"
+msgstr "固定 NTSC"
+
+#: src/platform/settings_menu.cpp
+msgid "VARIABLE"
+msgstr "可変"
+
+#: src/platform/settings_menu.cpp
 msgid "1 FRAME"
 msgstr "1 フレーム"
 
@@ -4386,6 +4580,18 @@ msgstr "MPH、マイル"
 #: src/platform/settings_menu.cpp
 msgid "CUSTOM"
 msgstr "カスタム"
+
+#: src/platform/settings_menu.cpp
+msgid "FORCE FEEDBACK STRENGTH"
+msgstr "フォースフィードバックの強さ"
+
+#: src/platform/settings_menu.cpp
+msgid "FORCE FEEDBACK STRENGTH (IN-GAME OPTION IS OFF)"
+msgstr "フォースフィードバックの強さ（ゲーム内設定がオフ）"
+
+#: src/platform/settings_menu.cpp
+msgid "LINEAR"
+msgstr "リニア"
 
 #: src/platform/settings_menu.cpp
 msgid "%d%% MIRRORED"
@@ -4594,6 +4800,79 @@ msgstr ""
 "ENTER：0%。"
 
 #: src/platform/settings_menu.cpp
+msgid ""
+"ON: THE GAME'S - THE CAR'S STEERING LOCK SHRINKS WITH SPEED,\n"
+"FOLLOWS A SLIDE AND CHANGES AT 90 DEGREES A SECOND.\n"
+"OFF: THE CAR'S FULL LOCK FOLLOWS THE WHEEL DIRECTLY,\n"
+"ITS WHOLE TRAVEL."
+msgstr ""
+"オン：ゲーム本来。切れ角は速度で減り、スライドに\n"
+"追従し、毎秒90度で変化します。\n"
+"オフ：ハンドルの全域が車のフルロックに直結します。"
+
+#: src/platform/settings_menu.cpp
+msgid ""
+"THE WHEEL'S STEERING INPUT SHAPED:\n"
+"BELOW 0 A SLOW RAMP UP (FINE NEAR\n"
+"THE CENTER, STEEP AT THE END),\n"
+"0 LINEAR, ABOVE 0 A FAST RAMP UP.\n"
+"ENTER: LINEAR."
+msgstr ""
+"ハンドル入力のカーブ：\n"
+"0未満は立ち上がりが遅い\n"
+"（中央は細かく、端で急）、\n"
+"0はリニア、0超は速い。\n"
+"ENTER：リニア。"
+
+#: src/platform/settings_menu.cpp
+msgid ""
+"HOW STRONG THE GAME'S STEERING FORCE IS ON THE WHEEL.\n"
+"0%: NONE. ENTER: 25%. THE GAME'S OWN FORCE FEEDBACK\n"
+"OPTION (ITS OPTIONS MENU) MUST BE ON TOO."
+msgstr ""
+"ゲームのステアリングの力の強さ。\n"
+"0%：なし。ENTER：25%。ゲーム側のフォースフィードバック\n"
+"設定（オプションメニュー）もオンにする必要があります。"
+
+#: src/platform/settings_menu.cpp
+msgid ""
+"THE PULL TO THE CENTER IN THE MENUS (NONE IN A RACE).\n"
+"100%: THE GAME'S OWN. ENTER: 100%."
+msgstr ""
+"メニューでの中央への引き（レース中はなし）。\n"
+"100%：ゲーム本来の強さ。ENTER：100%。"
+
+#: src/platform/settings_menu.cpp
+msgid ""
+"THE LEAST FORCE THE WHEEL GETS ONCE THERE IS ANY,\n"
+"FOR A WHEEL THAT DOES NOT MOVE BELOW IT. ENTER: 0%."
+msgstr ""
+"力があるときの最小の力。それ以下では\n"
+"動かないステアリング用。ENTER：0%。"
+
+#: src/platform/settings_menu.cpp
+msgid ""
+"EVERY FORCE THE OTHER WAY, FOR A WHEEL PUSHED AWAY\n"
+"FROM THE CENTER (THE LAUNCHER'S TESTS SHOW WHICH)."
+msgstr ""
+"すべての力を逆向きに。中央から押し出される\n"
+"ステアリング用（ランチャーのテストで分かります）。"
+
+#: src/platform/settings_menu.cpp
+msgid ""
+"FOR A WHEEL WHOSE FORCES STOP PARTWAY INTO A RACE:\n"
+"THE STEERING FORCE IS STARTED AGAIN EACH TIME THE GAME\n"
+"SENDS IT (PCSX2'S 'WORKAROUND FOR INTERMITTENT FFB LOSS').\n"
+"LEAVE IT OFF UNLESS NEEDED: ON MANY WHEELS IT MAKES THE\n"
+"FORCES VAGUE OR CUT OUT."
+msgstr ""
+"レースの途中で力が止まってしまうステアリング向け:\n"
+"ゲームがステアリングの力を送るたびに開始し直します\n"
+"（PCSX2の'WORKAROUND FOR INTERMITTENT FFB LOSS'と同じ）。\n"
+"必要な場合のみオンにしてください: 多くのステアリングでは\n"
+"力があいまいになったり途切れたりします。"
+
+#: src/platform/settings_menu.cpp
 msgid "DISPLAY"
 msgstr "画面"
 
@@ -4642,6 +4921,24 @@ msgstr ""
 "1-3：垂直同期オン、バッファーするフレーム数。\n"
 "1 フレームが最も安定したフレーム間隔になります\n"
 "（PC がフレームレートを維持できる場合）。"
+
+#: src/platform/settings_menu.cpp
+msgid "GAME CLOCK SYNC"
+msgstr "ゲームクロック同期"
+
+#: src/platform/settings_menu.cpp
+msgid ""
+"VARIABLE: GAME SPEED CHANGES BY A TINY AMOUNT TO IMPROVE FRAME PACING \n"
+" WHILE FPS IS CLOSE TO THE TICK RATE: \n"
+"59.90-60.10 / 119.80-120.20 / 179.70-180.30 / 239.60-240.40\n"
+"\n"
+"STATIC NTSC: STATIC 59.94 HZ TICK RATE (ACCURATE GAME SPEED)"
+msgstr ""
+"可変：フレーム間隔を安定させるため、ゲーム速度をごくわずかに変えます\n"
+"（FPS がティックレートに近いとき）：\n"
+"59.90-60.10 / 119.80-120.20 / 179.70-180.30 / 239.60-240.40\n"
+"\n"
+"固定 NTSC：59.94 HZ の固定ティックレート（正確なゲーム速度）"
 
 #: src/platform/settings_menu.cpp
 msgid "FRAME RATE CAP"
@@ -5606,6 +5903,18 @@ msgid "CARS NOT FOR SALE IN SHOWROOMS CAN BE BOUGHT"
 msgstr "ショールームの非売車を購入できます"
 
 #: src/platform/settings_menu.cpp
+msgid "NEW CARS WITHOUT ASSISTS"
+msgstr "新しい車のアシストをオフ"
+
+#: src/platform/settings_menu.cpp
+msgid ""
+"CARS ADDED TO THE GARAGE GET THEIR TCS AND ASM SET TO 0.\n"
+"CARS ALREADY IN THE GARAGE KEEP THEIR SETTINGS."
+msgstr ""
+"ガレージに追加される車は TCS と ASM が 0 になります。\n"
+"すでにガレージにある車の設定は変わりません。"
+
+#: src/platform/settings_menu.cpp
 msgid "CARS IN A RACE"
 msgstr "出走台数"
 
@@ -5902,6 +6211,30 @@ msgstr "ブレーキペダルのデッドゾーン"
 #: src/platform/settings_menu.cpp
 msgid "CLUTCH PEDAL DEAD ZONE"
 msgstr "クラッチペダルのデッドゾーン"
+
+#: src/platform/settings_menu.cpp
+msgid "STEERING FILTER"
+msgstr "ステアリングフィルター"
+
+#: src/platform/settings_menu.cpp
+msgid "STEERING CURVE"
+msgstr "ステアリングカーブ"
+
+#: src/platform/settings_menu.cpp
+msgid "CENTERING SPRING"
+msgstr "センタリングスプリング"
+
+#: src/platform/settings_menu.cpp
+msgid "MINIMUM FORCE"
+msgstr "最小の力"
+
+#: src/platform/settings_menu.cpp
+msgid "INVERT FORCE FEEDBACK"
+msgstr "フォースフィードバックを反転"
+
+#: src/platform/settings_menu.cpp
+msgid "FORCE FEEDBACK LOSS WORKAROUND"
+msgstr "フォースフィードバック消失の回避策"
 
 #: src/platform/settings_menu.cpp
 msgid "PLAYER 2'S DEVICE, CONTROLLER AND WHEEL."
@@ -6342,6 +6675,32 @@ msgstr "上 / 下  左 / 右  %s%sESC：閉じる"
 #: src/platform/texture_menu.cpp
 msgid "TEXTURES"
 msgstr "テクスチャ"
+
+#~ msgid ""
+#~ "FOR A WHEEL WHOSE FORCES STOP PARTWAY INTO A RACE:\n"
+#~ "THE FORCES ARE STARTED AGAIN WITH EACH UPDATE.\n"
+#~ "LEAVE IT OFF IF THE FORCES DO NOT STOP: ON SOME\n"
+#~ "WHEELS IT MAKES THEM JUDDER."
+#~ msgstr ""
+#~ "レースの途中で力が止まってしまうステアリング向け:\n"
+#~ "更新のたびに力を開始し直します。\n"
+#~ "力が止まらない場合はオフのままにしてください:\n"
+#~ "一部のステアリングでは力がガタつきます。"
+
+#~ msgid "On (the game's: the lock shrinks with speed)"
+#~ msgstr "オン（ゲーム本来：速度で切れ角が減る）"
+
+#~ msgid "Off (direct: the wheel's whole travel to full lock)"
+#~ msgstr "オフ（ダイレクト：ハンドル全域でフルロック）"
+
+#~ msgid ""
+#~ "VARIABLE: THE GAME'S CLOCK FOLLOWS THE DISPLAY\n"
+#~ "AT 59.90-60.10 HZ OR 2-4 TIMES THAT: STEADY PACING.\n"
+#~ "STATIC NTSC: THE ORIGINAL 59.94 HZ ALWAYS."
+#~ msgstr ""
+#~ "可変：59.90-60.10 HZ またはその2-4倍の画面に\n"
+#~ "ゲームのクロックを合わせる：安定したペース。\n"
+#~ "固定 NTSC：常にオリジナルの 59.94 HZ。"
 
 #~ msgid "Test"
 #~ msgstr "TestJA"

@@ -14,6 +14,7 @@
 #include "platform/screenshot.h"               /* PC (2026-11-15): TAKE SCREENSHOT */
 #include "platform/settings.h"
 #include "platform/ui_text.h"                  /* PC (2026-11-16): the interface's languages */
+#include "platform/wheel.h"                    /* PC (2026-11-20): GT3's own force feedback option */
 #include "platform/window.h"
 
 #include "platform/os/win_compat.h"
@@ -61,6 +62,9 @@ struct Item {
     /* PC (2026-11-09): a list setting's items one level deeper shown while
      * this is not 0 (nullptr: while its value is not 0) */
     int (*nest)() = nullptr;
+    /* PC (2026-11-20): the label as it is now, translated (nullptr: label's)
+     * - FORCE FEEDBACK STRENGTH saying when the game's own option is off */
+    const char *(*labelNow)() = nullptr;
 };
 
 int aa_get() { return (int)settings::anti_aliasing(); }
@@ -492,6 +496,11 @@ int movie_aspect_get() { return settings::movie_stretch() ? 1 : 0; }
 void movie_aspect_set(int v) { settings::set_movie_stretch(v != 0); }
 const char *movie_aspect_value(int v) { return v ? N_("STRETCH") : N_("ORIGINAL"); }
 
+/* PC (2026-11-19): settings::game_clock_variable - 0 variable, 1 static NTSC */
+int clock_sync_get() { return settings::game_clock_variable() ? 0 : 1; }
+void clock_sync_set(int v) { settings::set_game_clock_variable(v == 0); }
+const char *clock_sync_value(int v) { return v ? N_("STATIC NTSC") : N_("VARIABLE"); }
+
 int vsync_get() { return settings::vsync(); }
 void vsync_set(int v) { settings::set_vsync(v); }
 const char *vsync_value(int v)
@@ -821,6 +830,80 @@ template <int P, int I> int dz_edges()
 }
 #define DEADZONE(P, I) 0, nullptr, nullptr, nullptr, dz_text<P, I>, dz_step<P, I>, dz_edges<P, I>
 
+/* PC (2026-11-20): the wheels' force feedback (input_map::ffb of player P,
+ * setting I; platform/wheel_ffb.h): Left / Right by 5 % (the minimum by 1 %;
+ * 10 / 5 once held 1.5 s), Enter / Cross the default; a strength of 0 OFF.
+ * The game's SDL thread reads them as they change. */
+template <int P, int I> void ffb_text(char *out, size_t n)
+{
+    const int v = input_map::ffb(P, I);
+    if (I == input_map::kFfbStrength && v == 0)
+        snprintf(out, n, "%s", tr("OFF"));
+    else
+        snprintf(out, n, "%d%%", v);
+}
+template <int P, int I> void ffb_step(int dir, int heldMs)
+{
+    const int cur = input_map::ffb(P, I);
+    if (dir == 0) {
+        input_map::set_ffb(P, I, input_map::ffb_default(I));
+        return;
+    }
+    const int step = I == input_map::kFfbMinimum ? (heldMs < 1500 ? 1 : 5) : (heldMs < 1500 ? 5 : 10);
+    input_map::set_ffb(P, I, dir > 0 ? (cur / step + 1) * step : ((cur + step - 1) / step - 1) * step);
+}
+template <int P, int I> int ffb_edges()
+{
+    const int v = input_map::ffb(P, I);
+    return (v > 0 ? 1 : 0) | (v < input_map::ffb_max(I) ? 2 : 0);
+}
+#define FFB(P, I) 0, nullptr, nullptr, nullptr, ffb_text<P, I>, ffb_step<P, I>, ffb_edges<P, I>
+template <int P> int ffb_invert_get() { return input_map::ffb(P, input_map::kFfbInvert); }
+template <int P> void ffb_invert_set(int v) { input_map::set_ffb(P, input_map::kFfbInvert, v); }
+/* PC (2026-11-22): the FFB loss workaround (input_map::kFfbLossWorkaround) */
+template <int P> int ffb_loss_get() { return input_map::ffb(P, input_map::kFfbLossWorkaround); }
+template <int P> void ffb_loss_set(int v) { input_map::set_ffb(P, input_map::kFfbLossWorkaround, v); }
+/* PC (2026-11-20, user: "In the F2 menu, the force feedback % line should let
+ * the user know the in-game setting is off"): the strength's label while
+ * GT3's own Force Feedback option of player P is off (wheel::game_ffb: the
+ * race then sends no steering force, whatever the strength) */
+const char *const kFfbStrengthLabel[2] = {N_("FORCE FEEDBACK STRENGTH"),
+                                          N_("FORCE FEEDBACK STRENGTH (IN-GAME OPTION IS OFF)")};
+template <int P> const char *ffb_strength_label() { return tr(kFfbStrengthLabel[wheel::game_ffb(P) ? 0 : 1]); }
+#define FFB_STRENGTH(P) FFB(P, input_map::kFfbStrength), -1, nullptr, nullptr, ffb_strength_label<P>
+
+/* PC (2026-11-20, user: "a steering input curve. Option should show a graph
+ * of the curve, should be able to set the curve granularly"): the wheels'
+ * steering filter (on: GT3's) and curve (input_map::steer_curve of player
+ * P: Left / Right by 1, 5 once held 1.5 s, to the next multiple; Enter /
+ * Cross linear; its graph beside the help while it is chosen: curve_graph) */
+template <int P> int steer_filter_get() { return input_map::steer_filter(P) ? 1 : 0; }
+template <int P> void steer_filter_set(int v) { input_map::set_steer_filter(P, v != 0); }
+template <int P> void curve_text(char *out, size_t n)
+{
+    const int c = input_map::steer_curve(P);
+    if (c == 0)
+        snprintf(out, n, "%s", tr("LINEAR"));
+    else
+        snprintf(out, n, "%+d", c);
+}
+template <int P> void curve_step(int dir, int heldMs)
+{
+    if (dir == 0) {
+        input_map::set_steer_curve(P, 0);
+        return;
+    }
+    const int cur = input_map::steer_curve(P), step = heldMs < 1500 ? 1 : 5;
+    const int down = (cur >= 0 ? cur / step : -((-cur + step - 1) / step)) * step;   /* (the multiple at or below) */
+    input_map::set_steer_curve(P, dir > 0 ? down + step : (down == cur ? cur - step : down));
+}
+template <int P> int curve_edges()
+{
+    const int c = input_map::steer_curve(P);
+    return (c > -input_map::kSteerCurveMax ? 1 : 0) | (c < input_map::kSteerCurveMax ? 2 : 0);
+}
+#define CURVE(P) 0, nullptr, nullptr, nullptr, curve_text<P>, curve_step<P>, curve_edges<P>
+
 /* The course scale (settings::course_scale of axis A): Left / Right by 5 %
  * (25 once held 1.5 s) to the next multiple, X and Z over 0 to the other
  * sign's 5 % (no scale is 0; negative: mirrored), Y no lower than 5 %
@@ -863,6 +946,9 @@ void free_wheels_set(int v) { settings::set_unrestricted_wheels(v != 0); }
 /* PC (2026-11-14): GAME > EXTRAS > BUY CARS NOT FOR SALE */
 int not_for_sale_get() { return settings::buy_not_for_sale() ? 1 : 0; }
 void not_for_sale_set(int v) { settings::set_buy_not_for_sale(v != 0); }
+/* PC (2026-11-23): GAME > EXTRAS > NEW CARS WITHOUT ASSISTS */
+int new_car_assists_get() { return settings::new_car_assists_off() ? 1 : 0; }
+void new_car_assists_set(int v) { settings::set_new_car_assists_off(v != 0); }
 /* PC (2026-11-14): CHALLENGE MODES (settings::challenge, game/app/pc_challenge.h) */
 template <settings::Challenge C> int challenge_get() { return settings::challenge(C) ? 1 : 0; }
 template <settings::Challenge C> void challenge_set(int v) { settings::set_challenge(C, v != 0); }
@@ -1243,6 +1329,25 @@ const char kStickHelp[] = N_("HOW FAR THE STICK MOVES BEFORE IT COUNTS.\nENTER: 
 const char kTriggerHelp[] = N_("HOW FAR THE TRIGGERS MOVE BEFORE THEY COUNT.\nENTER: 0%.");
 const char kSteerHelp[] = N_("HOW FAR THE WHEEL TURNS BEFORE IT STEERS.\nENTER: 0%.");
 const char kPedalHelp[] = N_("HOW FAR THE PEDAL GOES BEFORE IT COUNTS.\nENTER: 0%.");
+/* PC (2026-11-20): the wheels' steering (the curve's lines short: its graph
+ * beside them, curve_graph) */
+const char kSteerFilterHelp[] = N_("ON: THE GAME'S - THE CAR'S STEERING LOCK SHRINKS WITH SPEED,\nFOLLOWS A SLIDE AND "
+                                   "CHANGES AT 90 DEGREES A SECOND.\nOFF: THE CAR'S FULL LOCK FOLLOWS THE WHEEL "
+                                   "DIRECTLY,\nITS WHOLE TRAVEL.");
+const char kSteerCurveHelp[] = N_("THE WHEEL'S STEERING INPUT SHAPED:\nBELOW 0 A SLOW RAMP UP (FINE NEAR\nTHE CENTER, "
+                                  "STEEP AT THE END),\n0 LINEAR, ABOVE 0 A FAST RAMP UP.\nENTER: LINEAR.");
+/* PC (2026-11-20): the wheels' force feedback */
+const char kFfbStrengthHelp[] = N_("HOW STRONG THE GAME'S STEERING FORCE IS ON THE WHEEL.\n0%: NONE. ENTER: 25%. "
+                                   "THE GAME'S OWN FORCE FEEDBACK\nOPTION (ITS OPTIONS MENU) MUST BE ON TOO.");
+const char kFfbSpringHelp[] = N_("THE PULL TO THE CENTER IN THE MENUS (NONE IN A RACE).\n100%: THE GAME'S OWN. ENTER: 100%.");
+const char kFfbMinimumHelp[] = N_("THE LEAST FORCE THE WHEEL GETS ONCE THERE IS ANY,\nFOR A WHEEL THAT DOES NOT "
+                                  "MOVE BELOW IT. ENTER: 0%.");
+const char kFfbInvertHelp[] = N_("EVERY FORCE THE OTHER WAY, FOR A WHEEL PUSHED AWAY\nFROM THE CENTER (THE "
+                                 "LAUNCHER'S TESTS SHOW WHICH).");
+/* PC (2026-11-22) */
+const char kFfbLossHelp[] = N_("FOR A WHEEL WHOSE FORCES STOP PARTWAY INTO A RACE:\nTHE STEERING FORCE IS STARTED "
+                               "AGAIN EACH TIME THE GAME\nSENDS IT (PCSX2'S 'WORKAROUND FOR INTERMITTENT FFB LOSS')."
+                               "\nLEAVE IT OFF UNLESS NEEDED: ON MANY WHEELS IT MAKES THE\nFORCES VAGUE OR CUT OUT.");
 
 /* (help: any number of lines, '\n' between; the panel takes the most lines
  * and the longest line of them all) */
@@ -1256,6 +1361,9 @@ const Item kItems[] = {
      2, movie_aspect_get, movie_aspect_set, movie_aspect_value},
     {1, N_("VERTICAL SYNC"), N_("OFF: NO VSYNC.\n1-3: VSYNC ON, NUMBER OF BUFFERED FRAMES.\n1 FRAME PROVIDES THE BEST FRAME PACING\nIF YOUR MACHINE CAN MAINTAIN FRAME RATE."), 4,
      vsync_get, vsync_set, vsync_value},
+    /* PC (2026-11-19): settings::game_clock_variable */
+    {1, N_("GAME CLOCK SYNC"), N_("VARIABLE: GAME SPEED CHANGES BY A TINY AMOUNT TO IMPROVE FRAME PACING \n WHILE FPS IS CLOSE TO THE TICK RATE: \n59.90-60.10 / 119.80-120.20 / 179.70-180.30 / 239.60-240.40\n\nSTATIC NTSC: STATIC 59.94 HZ TICK RATE (ACCURATE GAME SPEED)"),
+     2, clock_sync_get, clock_sync_set, clock_sync_value},
     {1, N_("FRAME RATE CAP"), N_("THE FRAMES AT MOST THIS OFTEN (A FRAME TIME CAP);\nOFF: AS FAST AS THEY ARE DRAWN."), 0, nullptr,
      nullptr, nullptr, rate_text, rate_step, rate_edges},
     {1, N_("  FRAME TIME CAP"), N_("THE SAME CAP IN MS, 0.01 A STEP (HOLD: FASTER);\nBELOW 1 MS, OFF."), 0, nullptr, nullptr,
@@ -1416,6 +1524,10 @@ const Item kItems[] = {
     /* PC (2026-11-14): the cars the dealers show as not for sale */
     {2, N_("BUY CARS NOT FOR SALE"), N_("CARS NOT FOR SALE IN SHOWROOMS CAN BE BOUGHT"),
      2, not_for_sale_get, not_for_sale_set, on_off_value},
+    /* PC (2026-11-23) */
+    {2, N_("NEW CARS WITHOUT ASSISTS"), N_("CARS ADDED TO THE GARAGE GET THEIR TCS AND ASM SET TO 0.\nCARS ALREADY IN "
+                                           "THE GARAGE KEEP THEIR SETTINGS."),
+     2, new_car_assists_get, new_car_assists_set, on_off_value},
     {2, N_("CARS IN A RACE"), N_("THE AMOUNT OF CARS IN A RACE.\n IF A RACE HAS A LIMIT, IT WILL NEED TO BE OVERRIDDEN WITH THE SETTING BELOW."),
      0, nullptr, nullptr, nullptr, race_cars_text, race_cars_step, race_cars_edges},
     {2, N_("  OVERRIDE RACE LIMITS"), N_("RALLY AND WET COURSES CAN HAVE MORE CARS TOO."),
@@ -1489,6 +1601,16 @@ const Item kItems[] = {
     {3, N_("BRAKE PEDAL DEAD ZONE"), kPedalHelp, DEADZONE(input_map::kWheel1, 2)},
     /* PC (2026-11-10): the clutch pedal's (input_map::kWheelClutchDeadzone) */
     {3, N_("CLUTCH PEDAL DEAD ZONE"), kPedalHelp, DEADZONE(input_map::kWheel1, input_map::kWheelClutchDeadzone)},
+    /* PC (2026-11-20): the steering filter and curve (input_map::steer_filter / steer_curve) */
+    {3, N_("STEERING FILTER"), kSteerFilterHelp, 2, steer_filter_get<0>, steer_filter_set<0>, on_off_value},
+    {3, N_("STEERING CURVE"), kSteerCurveHelp, CURVE(0)},
+    /* PC (2026-11-20): the force feedback (input_map::FfbSetting) */
+    {3, N_("FORCE FEEDBACK STRENGTH"), kFfbStrengthHelp, FFB_STRENGTH(0)},
+    {3, N_("CENTERING SPRING"), kFfbSpringHelp, FFB(0, input_map::kFfbSpring)},
+    {3, N_("MINIMUM FORCE"), kFfbMinimumHelp, FFB(0, input_map::kFfbMinimum)},
+    {3, N_("INVERT FORCE FEEDBACK"), kFfbInvertHelp, 2, ffb_invert_get<0>, ffb_invert_set<0>, on_off_value},
+    /* PC (2026-11-22) */
+    {3, N_("FORCE FEEDBACK LOSS WORKAROUND"), kFfbLossHelp, 2, ffb_loss_get<0>, ffb_loss_set<0>, on_off_value},
     {1, N_("PLAYER 2"), N_("PLAYER 2'S DEVICE, CONTROLLER AND WHEEL."), kCategory},
     {2, N_("DEVICE"), kDeviceHelp, 2, device_get<1>, device_set<1>, device_value},
     {2, N_("CONTROLLER"), N_("PLAYER 2'S CONTROLLER (PORT 2)."), kCategory},
@@ -1500,6 +1622,13 @@ const Item kItems[] = {
     {3, N_("GAS PEDAL DEAD ZONE"), kPedalHelp, DEADZONE(input_map::kWheel2, 1)},
     {3, N_("BRAKE PEDAL DEAD ZONE"), kPedalHelp, DEADZONE(input_map::kWheel2, 2)},
     {3, N_("CLUTCH PEDAL DEAD ZONE"), kPedalHelp, DEADZONE(input_map::kWheel2, input_map::kWheelClutchDeadzone)},
+    {3, N_("STEERING FILTER"), kSteerFilterHelp, 2, steer_filter_get<1>, steer_filter_set<1>, on_off_value},
+    {3, N_("STEERING CURVE"), kSteerCurveHelp, CURVE(1)},
+    {3, N_("FORCE FEEDBACK STRENGTH"), kFfbStrengthHelp, FFB_STRENGTH(1)},
+    {3, N_("CENTERING SPRING"), kFfbSpringHelp, FFB(1, input_map::kFfbSpring)},
+    {3, N_("MINIMUM FORCE"), kFfbMinimumHelp, FFB(1, input_map::kFfbMinimum)},
+    {3, N_("INVERT FORCE FEEDBACK"), kFfbInvertHelp, 2, ffb_invert_get<1>, ffb_invert_set<1>, on_off_value},
+    {3, N_("FORCE FEEDBACK LOSS WORKAROUND"), kFfbLossHelp, 2, ffb_loss_get<1>, ffb_loss_set<1>, on_off_value},
     {0, N_("DEBUG"), N_("TESTING AIDS AND DEVELOPER CHEATS"), kCategory},
     {1, N_("FILL GARAGE"), N_("NEW GAME: GET ONE OF EVERY CAR IN THE DATABASE\nIN EVERY COLOR."),
      2, fill_garage_get, fill_garage_set, on_off_value},
@@ -1724,6 +1853,36 @@ const uint32_t kHelp = rgba(200, 200, 150, 255);
 const uint32_t kHint = rgba(130, 130, 130, 255);
 const uint32_t kNotice = rgba(255, 200, 80, 255);
 
+/* PC (2026-11-20): the steering curve c's graph in a size x size square at
+ * (gx, gy): the wheel's input -1..1 across, the steering it gives up the
+ * side (input_map::apply_steer_curve, as the race reads the wheel), the
+ * centre lines and the linear diagonal dim under it. */
+void curve_graph(float gx, float gy, float size, int s, int c)
+{
+    const float b = (float)std::max(1, s / 2);
+    overlay::rect(gx, gy, size, size, kPanel);
+    overlay::rect(gx, gy, size, b, kFrame);
+    overlay::rect(gx, gy + size - b, size, b, kFrame);
+    overlay::rect(gx, gy, b, size, kFrame);
+    overlay::rect(gx + size - b, gy, b, size, kFrame);
+    overlay::rect(gx, gy + std::floor(size * 0.5f), size, b, kHighlight);
+    overlay::rect(gx + std::floor(size * 0.5f), gy, b, size, kHighlight);
+    const float dot = (float)std::max(1, s);
+    const int n = (int)size, step = std::max(1, s / 2);
+    float prev = -1.0f;
+    for (int i = 0; i <= n; i += step) {
+        const float x = -1.0f + 2.0f * (float)i / size;
+        const float lin = gy + (1.0f - (x + 1.0f) * 0.5f) * (size - dot);
+        if ((i / step) % 6 == 0)
+            overlay::rect(gx + i - dot * 0.5f, lin, dot * 0.5f, dot * 0.5f, kHint);
+        /* (each column joined to the last: a steep part a line, not dots) */
+        const float y = gy + (1.0f - (input_map::apply_steer_curve(x, c) + 1.0f) * 0.5f) * (size - dot);
+        const float top = prev < 0.0f ? y : std::min(prev, y), bottom = prev < 0.0f ? y : std::max(prev, y);
+        overlay::rect(gx + std::min((float)i, size - dot), top, dot, bottom - top + dot, kValue);
+        prev = y;
+    }
+}
+
 /* The help texts' most lines and longest line (cells: PC 2026-11-16, in the
  * interface's language - a Japanese character two cells). */
 void help_extent(int *rows, int *cols)
@@ -1810,12 +1969,13 @@ void build(int bw, int bh)
         char label[256], hot[32] = "";
         if (it.hotkey >= 0)
             input_map::hotkey_text(it.hotkey, hot, sizeof(hot));
+        const char *name = it.labelNow != nullptr ? it.labelNow() : tr(it.label);   /* (PC 2026-11-20) */
         if (it.count == kCategory)
-            snprintf(label, sizeof(label), "%s %s", g_open[i] ? "-" : "+", tr(it.label));
+            snprintf(label, sizeof(label), "%s %s", g_open[i] ? "-" : "+", name);
         else if (hot[0] != '\0')
-            snprintf(label, sizeof(label), "%s (%s)", tr(it.label), hot);
+            snprintf(label, sizeof(label), "%s (%s)", name, hot);
         else
-            snprintf(label, sizeof(label), "%s", tr(it.label));
+            snprintf(label, sizeof(label), "%s", name);
         overlay::text(x0 + 2.0f * cw * it.depth, y, s, label, sel ? kLabelSel : it.count == kCategory ? kTitle : kLabel);
         char value[160], v[192];
         const int edges = item_value(it, value, sizeof(value));
@@ -1841,12 +2001,25 @@ void build(int bw, int bh)
         char help[2048];
         snprintf(help, sizeof(help), "%s", tr(kItems[g_sel].help));
         float hy = y;
+        int helpCells = 0;                      /* (PC 2026-11-20: its widest line, for the curve's graph) */
         for (char *line = help; line != nullptr; hy += lineH) {
             char *next = strchr(line, '\n');
             if (next != nullptr)
                 *next++ = '\0';
             overlay::text(x0, hy, s, line, kHelp);
+            helpCells = std::max(helpCells, overlay::text_cells(line));
             line = next;
+        }
+        /* PC (2026-11-20): the steering curve's graph right of its help, as
+         * tall as the help's rows (narrower when the help leaves less room;
+         * none below 40 pixels) */
+        const Item &cur = kItems[g_sel];
+        const int curvePlayer = cur.text == curve_text<0> ? 0 : cur.text == curve_text<1> ? 1 : -1;
+        if (curvePlayer >= 0) {
+            const float room = x1 - (x0 + helpCells * cw) - 3.0f * cw;
+            const float size = std::floor(std::min((float)helpRows * lineH - 2.0f * s, room));
+            if (size >= 40.0f)
+                curve_graph(x1 - size, y, size, s, input_map::steer_curve(curvePlayer));
         }
     }
     y += (float)(helpRows + 1) * lineH;

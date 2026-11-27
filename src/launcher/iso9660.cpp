@@ -17,6 +17,7 @@
  * big-endian half, and the PS2's own driver reads only the little-endian
  * half too. */
 #include "iso9660.h"
+#include "chd_image.h"         /* PC (2026-11-23): an image stored as a CHD */
 #include "util.h"
 #include "platform/ui_text.h"  /* PC (2026-11-16): the interface's languages */
 #include "platform/os/fs.h"
@@ -88,14 +89,23 @@ void Image::close()
 {
     delete file_;
     file_ = nullptr;
+    delete chd_;                                /* PC (2026-11-23) */
+    chd_ = nullptr;
     image_size_ = 0;
     volume_sectors_ = 0;
     volume_id_.clear();
     root_ = Entry();
 }
 
+std::string Image::container() const
+{
+    return chd_ != nullptr ? chd_->describe() : std::string();
+}
+
 bool Image::read_raw(uint64_t offset, void *buf, uint32_t size, std::wstring *error) const
 {
+    if (chd_ != nullptr)                        /* PC (2026-11-23): a CHD's image */
+        return chd_->read(offset, buf, size, error);
     /* A positioned read (fs.h read_at), so several threads may read the same
      * Image. */
     uint8_t *p = static_cast<uint8_t *>(buf);
@@ -138,6 +148,24 @@ bool Image::open(const std::wstring &path, std::wstring *error)
         return false;
     }
     image_size_ = (uint64_t)sz;
+
+    /* PC (2026-11-23): a CHD (its first bytes say so, whatever its name):
+     * read through chd_image from here, as the image it holds */
+    {
+        uint8_t head[8] = {};
+        std::wstring ignored;
+        if (image_size_ >= sizeof(head) && read_raw(0, head, sizeof(head), &ignored) &&
+            chd_image::is_chd(head, sizeof(head))) {
+            delete file_;
+            file_ = nullptr;
+            chd_ = new chd_image::Reader;
+            if (!chd_->open(path, error)) {
+                close();
+                return false;
+            }
+            image_size_ = chd_->size();
+        }
+    }
 
     const wchar_t *not_iso = N_(L"this file is not a disc image (no ISO 9660 file system)");
     if (image_size_ < (uint64_t)(kFirstDescriptor + 1) * kSectorSize) {

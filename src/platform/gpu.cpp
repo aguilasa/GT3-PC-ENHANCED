@@ -31,7 +31,11 @@
 #endif
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
+#include <cstdlib>
+#include <cstring>
+#include <thread>
 #include <vector>
 
 namespace gpu {
@@ -176,6 +180,9 @@ void utf8(const WCHAR *w, char *out, size_t n)
         out[at] = 0;
 }
 #endif
+
+void start_vblank_watch();                  /* PC (2026-11-19): the display's vblanks (below refresh_hz) */
+void phase_note(double t0, double t1);      /* PC (2026-11-19): ... their phase from Present's release */
 
 void release_backbuffer()
 {
@@ -1060,7 +1067,9 @@ static void present_call(void *)
     UINT flags = 0;
     if (g_presentInterval == 0 && g_tearing && !fs)
         flags = DXGI_PRESENT_ALLOW_TEARING;
+    const double t0 = sched::now_seconds();
     present_result(g_swap->Present((UINT)g_presentInterval, flags), "the game window");
+    phase_note(t0, sched::now_seconds());  /* PC (2026-11-19): (the native call's own wait, not the turn after it) */
 }
 
 void present()
@@ -1070,6 +1079,7 @@ void present()
      * other game threads run meanwhile (platform/scheduler.h).  The other
      * game threads make no D3D calls. */
     guard_context();
+    start_vblank_watch();                   /* PC (2026-11-19): the display's vblanks (below) */
     frame_monitor::present_begin();
     const double t0 = sched::now_seconds();
     sched::run_outside(present_call, nullptr);
@@ -1128,6 +1138,299 @@ double refresh_hz()
 #endif
     return hz;
 }
+
+/* ---- PC (2026-11-19): the display's vblanks (scheduler.h set_display_clock) ---
+ * User report: "Vertical sync ... at 60hz in-game with a 60hz monitor, all
+ * settings have saw-tooth, or spikes that shouldn't be there ... every several
+ * seconds.  Even scanline sync in rtss has spikes": the game ticks on the
+ * scheduler's 59.94 Hz vblanks (the PS2's), the monitor refreshes at its own
+ * ~60 Hz, and their phase drifts round in some 17 s (60.00 Hz) - the frames
+ * that met the display's vblank at the wrong side of it waited a vblank more
+ * in Present, the next frame caught up two ticks (the log: "597 frames ... 600
+ * ticks (3 caught up)").  This thread times the vblanks of the monitor the game
+ * window is on (IDXGIOutput::WaitForVBlank, now_seconds() as it returns), fits
+ * a line through the last kRing of them (the period and the grid's phase: the
+ * wake-ups' jitter averaged out) and, while the rate is a 60 Hz display's
+ * (kLockLoHz .. kLockHiHz) and the fit holds, gives the grid to the scheduler:
+ * the game's vblanks - its ticks, the frame loop's wait, the sound's block
+ * times - fall on the display's.  A faster display (frames between the
+ * ticks), a 50 Hz one or none found: the PS2's 59.94 Hz as before.
+ * GT3PC_DISPLAY_CLOCK=0: never (to compare).  PC (2026-11-19): 2 .. 4 times
+ * that rate too (kMaxMultiple), and [Display] GameClockSync=ntsc: never. */
+namespace {
+
+/* PC (2026-11-19, user: "Make the range tighter, I suggest around 59.90 -
+ * 60.10"; "clock sync should kick in at intervals 2x, 3x, 4x the original game
+ * clock"): a display of 59.90 .. 60.10 Hz, or 2, 3, 4 times that - the game's
+ * vblanks then on every 2nd, 3rd, 4th of its (frames between the ticks: each
+ * tick the same number of them, the same frames, instead of one in ~500
+ * stretched to a third at 120 Hz as the two clocks drift) */
+constexpr double kLockLoHz = 59.90, kLockHiHz = 60.10;
+constexpr int kMaxMultiple = 4;
+constexpr int kRing = 240;                  /* the vblanks fitted (4 s at 60 Hz) */
+constexpr int kMinFit = 60;                 /* before the first fit */
+constexpr double kLockRms = 0.00075;        /* s: the fit's residual to take it */
+constexpr double kUnlockRms = 0.002;        /* s: ... to let it go (hysteresis) */
+
+std::atomic<bool> g_watchStarted{false};
+/* the grid given to the scheduler (phase_note: Present's release on it) */
+std::atomic<bool> g_gridOn{false};
+std::atomic<double> g_gridPeriod{0.0}, g_gridVblank{0.0};     /* (the display's own period: phase_note) */
+
+#ifdef _WIN32
+/* the scheduler's grid - the game's period (the display's x the multiple)
+ * from a display vblank - and the display's period here */
+void grid_set(bool on, double gamePeriod, double vblank, double displayPeriod)
+{
+    g_gridPeriod = displayPeriod;
+    g_gridVblank = vblank;
+    g_gridOn = on;
+    sched::set_display_clock(on, gamePeriod, vblank);
+}
+#endif
+
+/* PC (2026-11-19): where on the grid Present returns - a Present held by the
+ * display (or a limiter outside the game: RTSS) returns where the display
+ * takes a frame - and the game's vblanks put half a period from there
+ * (sched::set_vblank_phase).  With vsync the frames are paced by Present
+ * alone (game/app/pc_frame.cpp: no wait for the game's own vblank) and the
+ * ticks are those of the grid at each Present's return: one a frame, the
+ * returns' jitter half a period from adding or losing one.  (First tried:
+ * the vblanks just after the take, the frame loop still waiting for them
+ * before its Present - but where Present returned followed where it was
+ * called, and the phase chased it round the period: the harness, 0.6 ms
+ * to 9 ms in a minute.  At a fixed 1 ms the 32-car race had 3.7 ms of each
+ * 16.7 left after Present's wait.)  The phases of the last kPhaseN held
+ * Presents (circular mean: they wrap round the period), each over 2 ms; on
+ * the display's own period (a multiple's Presents return at each of its
+ * vblanks), the game's vblanks half of it from them. */
+constexpr int kPhaseN = 15;
+double g_phases[kPhaseN];
+int g_phaseCount, g_phaseHead;
+double g_phaseSet = -1.0;
+int g_phaseLogged;
+
+void phase_note(double t0, double t1)
+{
+    if (!g_gridOn.load() || t1 - t0 < 0.002)
+        return;
+    const double p = g_gridPeriod, v = g_gridVblank;
+    if (!(p > 0.0))
+        return;
+    double ph = std::fmod(t1 - v, p);
+    if (ph < 0.0)
+        ph += p;
+    g_phases[g_phaseHead] = ph;
+    g_phaseHead = (g_phaseHead + 1) % kPhaseN;
+    if (g_phaseCount < kPhaseN)
+        g_phaseCount++;
+    if (g_phaseCount < 8)
+        return;
+    double sx = 0.0, sy = 0.0;
+    const double w = 6.283185307179586 / p;
+    for (int i = 0; i < g_phaseCount; i++) {
+        sx += std::cos(g_phases[i] * w);
+        sy += std::sin(g_phases[i] * w);
+    }
+    double take = std::atan2(sy, sx) / w;
+    if (take < 0.0)
+        take += p;
+    double target = std::fmod(take + 0.5 * p, p);
+    double diff = std::fabs(target - g_phaseSet);
+    diff = std::min(diff, p - diff);
+    if (g_phaseSet >= 0.0 && diff < 0.0003)
+        return;
+    g_phaseSet = target;
+    sched::set_vblank_phase(target);
+    g_phaseCount = 0;                       /* (the next ones at the new phase) */
+    if (g_phaseLogged++ < 6)
+        pclog::write("frame: the game's vblanks %.2f ms after the display's - half a period from where Present"
+                     " returns (%.2f ms): one tick a frame paced by it%s", target * 1000.0, take * 1000.0,
+                     g_phaseLogged == 6 ? " (no more of these lines)" : "");
+}
+
+#ifdef _WIN32
+/* the DXGI output showing monitor mon: the game's adapter's, else any */
+IDXGIOutput *find_output(HMONITOR mon)
+{
+    auto search = [&](IDXGIAdapter *a) -> IDXGIOutput * {
+        for (UINT i = 0;; i++) {
+            IDXGIOutput *o = nullptr;
+            if (a->EnumOutputs(i, &o) != S_OK)
+                return nullptr;
+            DXGI_OUTPUT_DESC d;
+            if (SUCCEEDED(o->GetDesc(&d)) && d.Monitor == mon)
+                return o;
+            o->Release();
+        }
+    };
+    if (g_adapter != nullptr)
+        if (IDXGIOutput *o = search(g_adapter))
+            return o;
+    for (UINT i = 0; g_factory != nullptr; i++) {
+        IDXGIAdapter *a = nullptr;
+        if (g_factory->EnumAdapters(i, &a) != S_OK)
+            break;
+        IDXGIOutput *o = search(a);
+        a->Release();
+        if (o != nullptr)
+            return o;
+    }
+    return nullptr;
+}
+
+void vblank_watch()
+{
+    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
+    SetThreadDescription(GetCurrentThread(), L"display vblanks");
+    IDXGIOutput *out = nullptr;
+    HMONITOR mon = nullptr;
+    ULONGLONG lastCheck = 0;
+    static double ts[kRing], ks[kRing];
+    int n = 0, head = 0, fails = 0;
+    double lastT = 0.0, lastK = 0.0, period = 1.0 / std::max(1.0, refresh_hz());
+    int locked = 0;                         /* the multiple locked to (0: none) */
+    auto unlock = [&](const char *why) {
+        if (locked == 0)
+            return;
+        locked = 0;
+        grid_set(false, 0.0, 0.0, 0.0);
+        pclog::write("frame: the game's vblanks at 59.94 Hz again (%s)", why);
+    };
+    for (;;) {
+        /* PC (2026-11-19): [Display] GameClockSync static NTSC - the PS2's
+         * 59.94 Hz whatever the display (read live: F2 or the launcher) */
+        if (!settings::game_clock_variable()) {
+            unlock("Game clock sync: static NTSC");
+            n = head = 0;                   /* (variable again: a new fit) */
+            Sleep(250);
+            continue;
+        }
+        const ULONGLONG nowMs = GetTickCount64();
+        if (out == nullptr || nowMs - lastCheck > 2000) {
+            lastCheck = nowMs;
+            const HMONITOR m = MonitorFromWindow(g_hwnd, MONITOR_DEFAULTTONEAREST);
+            if (m != mon || out == nullptr) {
+                if (out != nullptr)
+                    out->Release();
+                out = find_output(m);
+                mon = m;
+                n = head = 0;               /* (another monitor: its own vblanks) */
+                unlock("the window on another monitor");
+            }
+        }
+        if (out == nullptr) {
+            Sleep(500);
+            continue;
+        }
+        const HRESULT hr = out->WaitForVBlank();
+        const double t = sched::now_seconds();
+        if (FAILED(hr) || (n > 0 && t - lastT < 0.002)) {
+            /* (no vblank to wait for - the display asleep, the output gone) */
+            if (++fails > 30) {
+                unlock("the display's vblanks not seen");
+                n = head = 0;
+                if (out != nullptr) {
+                    out->Release();
+                    out = nullptr;
+                }
+            }
+            Sleep(16);
+            continue;
+        }
+        fails = 0;
+        double k = 0.0;
+        if (n > 0) {
+            const double steps = std::floor((t - lastT) / period + 0.5);
+            k = lastK + (steps < 1.0 ? 1.0 : steps);
+        }
+        lastT = t;
+        lastK = k;
+        ts[head] = t;
+        ks[head] = k;
+        head = (head + 1) % kRing;
+        if (n < kRing)
+            n++;
+        if (n < kMinFit)
+            continue;
+        double mk = 0.0, mt = 0.0;
+        for (int i = 0; i < n; i++) {
+            mk += ks[i];
+            mt += ts[i];
+        }
+        mk /= n;
+        mt /= n;
+        double skk = 0.0, skt = 0.0;
+        for (int i = 0; i < n; i++) {
+            skk += (ks[i] - mk) * (ks[i] - mk);
+            skt += (ks[i] - mk) * (ts[i] - mt);
+        }
+        if (!(skk > 0.0))
+            continue;
+        const double b = skt / skk, a = mt - b * mk;
+        double rss = 0.0;
+        for (int i = 0; i < n; i++) {
+            const double r = ts[i] - (a + b * ks[i]);
+            rss += r * r;
+        }
+        const double rms = std::sqrt(rss / n), hz = b > 0.0 ? 1.0 / b : 0.0;
+        if (b > 0.0)
+            period = b;
+        /* PC (2026-11-19): the multiple whose share of the rate is 59.90 ..
+         * 60.10 Hz (1 .. kMaxMultiple; 0: none) */
+        int mult = 0;
+        for (int m = 1; m <= kMaxMultiple && mult == 0; m++)
+            if (hz / m >= kLockLoHz && hz / m <= kLockHiHz)
+                mult = m;
+        if (mult != 0 && rms <= (locked == mult ? kUnlockRms : kLockRms)) {
+            /* (the game's vblanks on every mult-th display vblank, counted
+             * from the fit's first: the same ones fit after fit) */
+            const double kGame = std::floor(lastK / mult) * mult;
+            grid_set(true, b * mult, a + b * kGame, b);
+            if (locked != mult) {
+                locked = mult;
+                if (mult == 1)
+                    pclog::write("frame: the game's vblanks follow the display's: %.4f Hz (its vblanks timed, the"
+                                 " fit within %.2f ms; Game clock sync variable; GT3PC_DISPLAY_CLOCK=0 keeps 59.94"
+                                 " Hz)", hz, rms * 1000.0);
+                else
+                    pclog::write("frame: the game's vblanks on every %s of the display's: %.4f Hz, the game's %.4f"
+                                 " (its vblanks timed, the fit within %.2f ms; Game clock sync variable;"
+                                 " GT3PC_DISPLAY_CLOCK=0 keeps 59.94 Hz)", mult == 2 ? "2nd" : mult == 3 ? "3rd" : "4th",
+                                 hz, hz / mult, rms * 1000.0);
+            }
+        } else if (locked != 0) {
+            unlock(mult != 0 ? "the display's vblanks too irregular"
+                             : "the display not at 59.90 .. 60.10 Hz or 2 .. 4 times that");
+        }
+    }
+}
+
+#endif
+
+/* the watcher started at the first present (the scheduler's clock running) */
+void start_vblank_watch()
+{
+    if (g_watchStarted.exchange(true))
+        return;
+#ifndef _WIN32
+    /* Off Windows no display vblank is timed (DXVK-native's WaitForVBlank
+     * only sleeps a period, and SDL tells no vblank): the PS2's 59.94 Hz. */
+    pclog::write("frame: the game's vblanks at 59.94 Hz (the display's are not timed on this system)");
+    return;
+#else
+    const char *e = getenv("GT3PC_DISPLAY_CLOCK");
+    if (e != nullptr && strcmp(e, "0") == 0) {
+        pclog::write("frame: GT3PC_DISPLAY_CLOCK=0: the game's vblanks at 59.94 Hz whatever the display");
+        return;
+    }
+    if (!std::isfinite(sched::now_seconds()))
+        return;                             /* (no scheduler: a tool's device) */
+    std::thread(vblank_watch).detach();
+#endif
+}
+
+} // namespace
 
 } // namespace gpu
 

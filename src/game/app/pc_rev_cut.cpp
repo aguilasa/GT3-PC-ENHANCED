@@ -33,6 +33,11 @@ std::mutex g_lock;
 /* The races with the realistic limiter (bound by race_organization_create
  * for every organization: it sets or clears the entry). */
 std::unordered_map<const RaceOrganization *, bool> g_races;
+/* PC (2026-11-20): the races playing a demo file's recording (a licence
+ * test's, a time trial's: load_demo_setting) - the limiter it recorded,
+ * realistic or not, in place of g_races' until a race not a replay starts
+ * (pc_rev_cut_demo_end) */
+std::unordered_map<const RaceOrganization *, bool> g_demos;
 
 /* Each car's cut: the seconds of it left (0: none); the revs at the step
  * before and that step's fuel share; the rise of the last step with all its
@@ -168,12 +173,24 @@ constexpr u8 kMark = 'R', kVersion = 5;
 void forget(const RaceOrganization *org)
 {
     g_races.erase(org);
+    g_demos.erase(org);                     /* PC (2026-11-20) */
 }
 
-bool realistic(const RaceOrganization *org)
+/* The race's own limiter (the settings', or a saved race's) */
+bool own_realistic(const RaceOrganization *org)
 {
     auto it = g_races.find(org);
     return it != g_races.end() && it->second;
+}
+
+/* The limiter org's cars run: a demo file's while one plays (PC
+ * 2026-11-20), else the race's own */
+bool realistic(const RaceOrganization *org)
+{
+    auto demo = g_demos.find(org);
+    if (demo != g_demos.end())
+        return demo->second;
+    return own_realistic(org);
 }
 
 /* The block's realistic version (0: the original) */
@@ -235,6 +252,27 @@ void pc_rev_cut_load(RaceOrganization *org, const RaceInfoBlock *blk)
     if (block_version(blk) != kVersion)
         printf("PC: rev limiter: the race was saved with version %d of the realistic limiter, it replays with %d:"
                " it may drive otherwise\n", block_version(blk), kVersion);
+}
+
+void pc_rev_cut_demo(const RaceOrganization *org, const RaceInfoBlock *blk)
+{
+    if (org == NULL || blk == NULL)
+        return;
+    std::lock_guard<std::mutex> lock(g_lock);
+    const bool demo = block_realistic(blk), own = own_realistic(org);
+    g_demos[org] = demo;
+    printf("PC: rev limiter: a demo file plays with the %s limiter it was recorded with (the race's own: %s)\n",
+           demo ? "realistic" : "original", own ? "realistic" : "original");
+    if (demo && block_version(blk) != kVersion)
+        printf("PC: rev limiter: the demo was recorded with version %d of the realistic limiter, it plays with %d:"
+               " it may drive otherwise\n", block_version(blk), kVersion);
+}
+
+void pc_rev_cut_demo_end(const RaceOrganization *org)
+{
+    std::lock_guard<std::mutex> lock(g_lock);
+    if (g_demos.erase(org) != 0)
+        printf("PC: rev limiter: the race's own again (%s)\n", own_realistic(org) ? "realistic" : "original");
 }
 
 void pc_rev_cut_check_ghost(const RaceInfoBlock *blk, const RaceOrganization *org)

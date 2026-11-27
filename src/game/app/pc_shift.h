@@ -76,7 +76,9 @@
  * the cars' physics again from their recorded inputs, so a saved race
  * records realistic (its RaceInfoBlock's spare bytes: 'S', 4 at +0x1E, after
  * the time's part, game/app/pc_course_pick.cpp) and its replay runs it (none
- * recorded: original).  The attract mode's demos run the original.  A ghost
+ * recorded: original).  The attract mode's demos run the original; a demo
+ * file (a licence test's, a time trial's) the shifts it recorded (PC
+ * 2026-11-20: pc_shift_demo).  A ghost
  * runs in its race's (a ghost saved with the other one is logged:
  * pc_shift_check_ghost).  A car's shift is its own, from DynCar_resetState
  * (T330) on.
@@ -122,6 +124,15 @@ void pc_shift_load(RaceOrganization *org, const RaceInfoBlock *blk);
 /* RaceBase::virtual_19 (a ghost into a running race): logged when blk was
  * recorded with the other shifts than org's. */
 void pc_shift_check_ghost(const RaceInfoBlock *blk, const RaceOrganization *org);
+/* PC (2026-11-20): load_demo_setting (T102): a demo file's recording (a
+ * licence test's, a time trial's) plays on the session's own race, whose
+ * shifts came from the settings - org's cars run the shifts blk recorded
+ * (none: the original; its clutch mode and H-shifters too) instead, until
+ * RaceBase::virtual_8 starts a race that is not a replay (pc_shift_demo_end:
+ * the race's own again).  The user: the demos drove otherwise with Gear
+ * shift behavior on Realistic. */
+void pc_shift_demo(const RaceOrganization *org, const RaceInfoBlock *blk);
+void pc_shift_demo_end(const RaceOrganization *org);
 
 /* DynCar_resetState: car's shift over. */
 void pc_shift_reset(RaceCarState *car);

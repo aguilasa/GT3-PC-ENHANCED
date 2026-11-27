@@ -252,6 +252,18 @@ constexpr int kPadAxisLeftTrigger = 4, kPadAxisRightTrigger = 5;
  * rests at an end (|rest| > 16384: a pedal), the direction it moved.  joy:
  * a joystick axis (else a gamepad axis: always a half). */
 bool capture_axis(bool joy, int axis, int rest, int now, Binding *out);
+/* PC (2026-11-23): the same for a wheel profile's SteerLeft / SteerRight
+ * from a joystick axis: always a half, the one the axis moved towards,
+ * taken once it moved kSteerCaptureMove from where it was (a tenth of its
+ * whole travel).  A user's report (a Fanatec direct drive base): after
+ * SteerLeft the wheel stayed where it was turned to - no spring of its own -
+ * so SteerRight began from past half lock, which capture_axis reads as an
+ * axis at rest at an end and took whole: `SteerLeft=joy:axis0-;
+ * SteerRight=joy:axis0+full'.  That steers half right with the wheel
+ * centred, and the menus then hold "right" for good, which keeps every
+ * button out (MenuControl::updateKeys): no confirm, no movie skip. */
+constexpr int kSteerCaptureMove = 6554;
+bool capture_steer_axis(int axis, int rest, int now, Binding *out);
 
 /* ---- a profile ------------------------------------------------------- */
 
@@ -268,11 +280,52 @@ constexpr int kStickDeadzoneDefault = 15;   /* Controller 1 / 2: both sticks' (t
 const char *deadzone_key(int profile, int i);
 const char *deadzone_name(int profile, int i);      /* the launcher's / settings menu's label */
 
+/* PC (2026-11-20, user: "Force feedback for the virtual wheels ... FFB
+ * settings: Strength, etc."): a wheel's force feedback (platform/wheel_ffb.h),
+ * [WheelN] FfbStrength=25 (percent, 0..200: the game's steering force; 0
+ * none; 25 by default, the user's), FfbSpring=100 (0..300: the menus' centring spring, the game's own
+ * at 100), FfbMinimum=0 (0..30: the least force a non-zero one is lifted to,
+ * for a wheel that does not move below it), FfbInvert=off (on: every force
+ * the other way).  PC (2026-11-22, a user's report: "Shortly after the start
+ * of a race (about 30-40 seconds or so) with certain wheels (I am using a
+ * Simagic Alpha Evo) force feedback is lost.  There is a similar issue on
+ * PCSX2 which is handled via an option called 'workaround for intermittent
+ * FFB loss'"): FfbLossWorkaround=off (on: the steering force started again
+ * with each one the game sends, as PCSX2's FfbDropoutWorkaround:
+ * platform/wheel_ffb.h). */
+enum FfbSetting { kFfbStrength, kFfbSpring, kFfbMinimum, kFfbInvert, kFfbLossWorkaround, kFfbSettings };
+const char *ffb_key(int i);                 /* the ini key: "FfbStrength" .. */
+const char *ffb_name(int i);                /* the launcher's label (N_) */
+int ffb_default(int i);
+int ffb_max(int i);                         /* (the least is 0; the switches' 1) */
+/* PC (2026-11-22): an on / off setting (FfbInvert, FfbLossWorkaround: the
+ * ini's "on" / "off") */
+inline bool ffb_is_switch(int i) { return i == kFfbInvert || i == kFfbLossWorkaround; }
+
+/* PC (2026-11-20, user: "There is a steering input filter for the wheel, add
+ * an option to disable it, so steering is directly dictated by the wheel's
+ * steering input.  Also, a steering input curve ... from a slow ramp up at
+ * the end, to linear, to a fast ramp up"): a wheel's [WheelN]
+ * SteeringFilter=on (GT3's: the car's lock shrinking with speed, following
+ * slides, changing at 90 deg/s) | off (the car's full lock straight from the
+ * wheel: game/car/physics/T342, INPUT_DEV_WHEEL_DIRECT) and SteeringCurve=0
+ * (-100..100: below 0 a slow ramp up - fine near the centre, steep at the
+ * end - 0 linear, above 0 a fast ramp up; apply_steer_curve). */
+constexpr int kSteerCurveMax = 100;
+/* The steering input x (-1..1) through curve c (-100..100): for c > 0
+ * (1 + k) x / (1 + k |x|), for c < 0 its mirror over the diagonal x / (1 + k
+ * - k |x|), k = 9 |c| / 100 (the slope at the centre 10 x or 1 / 10 at the
+ * ends of the range, finite everywhere); 0 the input as it is. */
+float apply_steer_curve(float x, int c);
+
 struct Profile {
     Binding map[kMaxControls][kSlots];
     int deadzone[kDeadzones] = {0, 0, 0, 0};    /* (defaults: kStickDeadzoneDefault for a controller's sticks) */
     char device[128] = "";                  /* wheels: the joystick's name ("": auto) */
     bool controller = false;                /* wheels: Input=controller (else wheel) */
+    int ffb[kFfbSettings] = {25, 100, 0, 0, 0}; /* wheels: the force feedback's (PC 2026-11-20; 11-22 the workaround) */
+    bool steerFilter = true;                /* wheels: SteeringFilter (PC 2026-11-20) */
+    int steerCurve = 0;                     /* wheels: SteeringCurve (PC 2026-11-20) */
 };
 void defaults(int profile, Profile *out);
 /* gt3pc.ini at `ini' (a full path): a missing value the default. */
@@ -281,6 +334,14 @@ void load(const char *ini, int profile, Profile *out);
 void save(const char *ini, int profile, const Profile &p);
 /* A binding of the profile names the device `name' (case aside). */
 bool names_device(const Profile &p, const char *name);
+/* PC (2026-11-23): the device a wheel profile's steering names (its
+ * SteerLeft / SteerRight bound to a joystick `@<name>'), "" when it names
+ * none.  That joystick is the wheel itself, whatever its Device says while
+ * that is auto: the game (gamepad.cpp wheel_for) and the launcher take it
+ * as the profile's wheel.  A user's gt3pc.ini had every binding of Wheel 1
+ * written with its own wheel base's name (platform/joy_names.h), which kept
+ * the base from being a wheel at all. */
+const char *steer_device(const Profile &p);
 
 /* ---- the sources ----------------------------------------------------- */
 
@@ -337,6 +398,17 @@ float apply_deadzone(float v, float d);
  * written to gt3pc.ini at once.  Any thread. */
 bool plays_with_controller(int player);
 void set_plays_with_controller(int player, bool on);
+/* PC (2026-11-20): wheel `player''s (0, 1) force feedback setting i
+ * (FfbSetting); set: held to 0..ffb_max, written to gt3pc.ini at once.  Any
+ * thread. */
+int ffb(int player, int i);
+void set_ffb(int player, int i, int v);
+/* PC (2026-11-20): wheel `player''s steering filter (on: GT3's) and curve
+ * (-100..100); set: written to gt3pc.ini at once.  Any thread. */
+bool steer_filter(int player);
+void set_steer_filter(int player, bool on);
+int steer_curve(int player);
+void set_steer_curve(int player, int c);
 
 /* ---- the hotkeys ([Hotkeys]) ------------------------------------------ */
 

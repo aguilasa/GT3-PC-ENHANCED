@@ -9,6 +9,8 @@
  *   gt3launcher.exe --install <image.iso> [--to <folder>]
  *   gt3launcher.exe --unpack <gt3.vol> [--to <folder>]
  *
+ * (PC 2026-11-23: the image may be a CHD, chd_image.h.)
+ *
  * PC (2026-11-14, engines.h): the window is preceded by the engine selector,
  * which starts this launcher's own window or another engine's launcher as
  *
@@ -49,7 +51,7 @@ const wchar_t kUsageText[] =
     L"  gt3launcher.exe\n"
     L"      the launcher window\n"
     L"  gt3launcher.exe --install <image.iso> [--to <folder>]\n"
-    L"      installs the game files from a Gran Turismo 3 disc image into <folder>\\data_US,\n"
+    L"      installs the game files from a Gran Turismo 3 disc image (an .iso or a .chd) into <folder>\\data_US,\n"
     L"      data_EU or data_JP (any other Gran Turismo 3 engine disc - GT Concept, a demo -\n"
     L"      is extracted as data only into data_<boot file>), <folder> by default the\n"
     L"      launcher's, without a window\n"

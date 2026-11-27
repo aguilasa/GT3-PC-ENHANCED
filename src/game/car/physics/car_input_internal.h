@@ -95,9 +95,14 @@ enum {
     INPUT_DEV_STICK    = 2,                 /* the analog stick */
     INPUT_DEV_PRESSURE = 3,                 /* the pressure buttons: steered like the digital pad */
     INPUT_DEV_WHEEL    = 4,                 /* a steering wheel */
-    INPUT_DEV_DFP      = 6                  /* the enhanced engine: the Driving Force Pro (Lupo 2; RaceInput::readWheel's
+    INPUT_DEV_DFP      = 6,                 /* the enhanced engine: the Driving Force Pro (Lupo 2; RaceInput::readWheel's
                                                STEER_WHEEL_DFP): the full lock at once, its input predicted
                                                (physics.md 19) */
+    INPUT_DEV_WHEEL_DIRECT = 7              /* PC (2026-11-20): a wheel with its steering filter off ([WheelN]
+                                               SteeringFilter=off; RaceInput::readWheel's STEER_WHEEL_DIRECT): the
+                                               full lock straight from the input - no speed curve, no lag, no lock
+                                               following the slide, no prediction; the wheel's pedal curves.  Recorded
+                                               with the input: a replay or ghost steers as the race did */
 };
 
 #define INPUT_FULL 0x1000                   /* an analog input at full */

@@ -98,8 +98,10 @@ enum {
     STEER_ANALOG   = 2,
     STEER_PRESSURE = 3,
     STEER_WHEEL    = 4,
-    STEER_WHEEL_DFP = 6                         /* the enhanced engine: the Driving Force Pro (backend.md B1,
+    STEER_WHEEL_DFP = 6,                        /* the enhanced engine: the Driving Force Pro (backend.md B1,
                                                physics.md 19: full lock, extrapolated input) */
+    STEER_WHEEL_DIRECT = 7                      /* PC (2026-11-20): a wheel, its steering filter off (T342's
+                                               INPUT_DEV_WHEEL_DIRECT) */
 };
 
 /* Control::channels (T474's CHAN_*): with a pad and a wheel, the wheel's

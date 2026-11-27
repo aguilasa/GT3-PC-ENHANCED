@@ -149,6 +149,28 @@ msgstr "ROZMIAR TRASY: %s (MIN.)"
 msgid "COURSE SIZE: %s"
 msgstr "ROZMIAR TRASY: %s"
 
+#: src/game/app/pc_clutch.cpp
+msgid "H-SHIFTER IS OFF (PLAYER %d)"
+msgstr "SKRZYNIA H WYŁĄCZONA (GRACZ %d)"
+
+#: src/game/app/pc_clutch.cpp
+msgid ""
+"ITS GEARS ARE NOT READ: THE H-SHIFTER WORKS WITH A CLUTCH,\n"
+"AND NONE IS MAPPED. MAP ONE IN THE LAUNCHER'S CONTROLS TAB."
+msgstr ""
+"JEJ BIEGI NIE SĄ ODCZYTYWANE: SKRZYNIA H DZIAŁA ZE SPRZĘGŁEM,\n"
+"A ŻADNE NIE JEST PRZYPISANE. PRZYPISZ JE NA KARCIE STEROWANIE LAUNCHERA."
+
+#: src/game/app/pc_clutch.cpp
+msgid ""
+"ITS GEARS ARE NOT READ IN THIS RACE. TO USE IT, SET GEAR SHIFT\n"
+"BEHAVIOR TO REALISTIC + CLUTCH AND H-SHIFTER TO ON (GAME > EXTRAS).\n"
+"THE NEXT RACE ENTERED TAKES IT."
+msgstr ""
+"JEJ BIEGI NIE SĄ ODCZYTYWANE W TYM WYŚCIGU. ABY JEJ UŻYĆ, USTAW\n"
+"PRZEŁĄCZANIE BIEGÓW NA REALISTYCZNE + SPRZĘGŁO I SKRZYNIĘ H NA WŁ.\n"
+"(GRA > DODATKI). DZIAŁA OD NASTĘPNEGO WYŚCIGU."
+
 #: src/game/app/pc_customcam.cpp
 msgid "CUSTOM CAMERA"
 msgstr "KAMERA WŁASNA"
@@ -297,6 +319,18 @@ msgstr "POLE WIDZENIA KAMERY DEBUGOWANIA %.0f"
 msgid "CAMERA: %s"
 msgstr "KAMERA: %s"
 
+#: src/game/app/pc_ffb.cpp
+msgid "FORCE FEEDBACK IS OFF (PLAYER %d)"
+msgstr "FORCE FEEDBACK WYŁĄCZONY (GRACZ %d)"
+
+#: src/game/app/pc_ffb.cpp
+msgid ""
+"THE GAME'S OWN FORCE FEEDBACK OPTION IS OFF: THE WHEEL\n"
+"GETS NO STEERING FORCE. TURN IT ON IN THE GAME'S OPTIONS."
+msgstr ""
+"OPCJA FORCE FEEDBACK W GRZE JEST WYŁĄCZONA: KIEROWNICA\n"
+"NIE DOSTAJE SIŁY. WŁĄCZ JĄ W OPCJACH GRY."
+
 #: src/game/app/pc_frame.cpp
 msgid "REPLAY SPEED %s"
 msgstr "PRĘDKOŚĆ POWTÓRKI %s"
@@ -425,6 +459,26 @@ msgstr "Kokpit"
 msgid "Bumper"
 msgstr "Zderzak"
 
+#: src/launcher/chd_image.cpp
+msgid "this CHD file needs a parent CHD file, which is not supported"
+msgstr "ten plik CHD wymaga nadrzędnego pliku CHD, co nie jest obsługiwane"
+
+#: src/launcher/chd_image.cpp
+msgid "the CHD file could not be read (%s)"
+msgstr "nie udało się odczytać pliku CHD (%s)"
+
+#: src/launcher/chd_image.cpp src/launcher/iso9660.cpp
+msgid "the file could not be opened (%s)"
+msgstr "nie udało się otworzyć pliku (%s)"
+
+#: src/launcher/chd_image.cpp
+msgid "this CHD file holds no disc image (no ISO 9660 file system)"
+msgstr "ten plik CHD nie zawiera obrazu płyty (brak systemu plików ISO 9660)"
+
+#: src/launcher/chd_image.cpp src/launcher/iso9660.cpp
+msgid "it ends too early (is the image complete?)"
+msgstr "kończy się za wcześnie (czy obraz jest kompletny?)"
+
 #: src/launcher/controls.cpp
 msgid "Mapping"
 msgstr "Przypisania"
@@ -436,6 +490,22 @@ msgstr "Kalibracja"
 #: src/launcher/controls.cpp
 msgid "Hotkeys"
 msgstr "Skróty"
+
+#: src/launcher/controls.cpp
+msgid "Push left"
+msgstr "Pchnij w lewo"
+
+#: src/launcher/controls.cpp
+msgid "Push right"
+msgstr "Pchnij w prawo"
+
+#: src/launcher/controls.cpp src/platform/input_map.cpp
+msgid "Centering spring"
+msgstr "Sprężyna centrująca"
+
+#: src/launcher/controls.cpp src/launcher/ui.cpp
+msgid "Off"
+msgstr "Wył."
 
 #: src/launcher/controls.cpp
 msgid "Press a key, click or move the mouse... (Esc)"
@@ -546,6 +616,83 @@ msgstr ""
 "Lewa gałka %+.2f %+.2f    Prawa gałka %+.2f %+.2f    L2 %.2f    R2 %.2f"
 
 #: src/launcher/controls.cpp
+msgid "Force feedback: the centering spring is on for 4 seconds - turn the wheel: it pulls back to the center."
+msgstr "Force feedback: sprężyna centrująca działa przez 4 sekundy - obróć kierownicę: wraca do środka."
+
+#: src/launcher/controls.cpp
+msgid "Force feedback: %s..."
+msgstr "Force feedback: %s..."
+
+#: src/launcher/controls.cpp
+msgid "Force feedback: the centering spring test is over."
+msgstr "Force feedback: test sprężyny centrującej zakończony."
+
+#: src/launcher/controls.cpp
+msgid "Force feedback: done. If the wheel turned the other way, set Invert force feedback to On."
+msgstr "Force feedback: gotowe. Jeśli kierownica obróciła się w drugą stronę, ustaw „Odwróć force feedback” na Wł."
+
+#: src/launcher/controls.cpp
+msgid "Force feedback: the wheel is not connected."
+msgstr "Force feedback: kierownica nie jest podłączona."
+
+#: src/launcher/controls.cpp
+msgid "Force feedback: SDL finds none on this wheel."
+msgstr "Force feedback: SDL nie znajduje go w tej kierownicy."
+
+#: src/launcher/controls.cpp
+msgid "Force feedback: it could not be opened (%s)."
+msgstr "Force feedback: nie udało się go otworzyć (%s)."
+
+#: src/launcher/controls.cpp
+msgid "Force feedback: this wheel plays no constant force (the steering force)."
+msgstr "Force feedback: ta kierownica nie odtwarza stałej siły (siły skrętu)."
+
+#: src/launcher/controls.cpp
+msgid "Force feedback: this wheel plays no spring (the centering spring)."
+msgstr "Force feedback: ta kierownica nie odtwarza sprężyny (sprężyny centrującej)."
+
+#: src/launcher/controls.cpp
+msgid "Force feedback: no wheel connected."
+msgstr "Force feedback: brak podłączonej kierownicy."
+
+#: src/launcher/controls.cpp
+msgid "Force feedback: available. The tests play on the wheel with the settings above, as the game would."
+msgstr "Force feedback: dostępny. Testy działają na kierownicy z ustawieniami powyżej, tak jak w grze."
+
+#: src/launcher/controls.cpp
+msgid "Linear"
+msgstr "Liniowa"
+
+#: src/launcher/controls.cpp
+msgid "Steering curve: linear"
+msgstr "Krzywa skrętu: liniowa"
+
+#: src/launcher/controls.cpp
+msgid "Steering curve: %+d, a fast ramp up"
+msgstr "Krzywa skrętu: %+d, szybki narost"
+
+#: src/launcher/controls.cpp
+msgid "Steering curve: %+d, a slow ramp up"
+msgstr "Krzywa skrętu: %+d, wolny narost"
+
+#: src/launcher/controls.cpp
+msgid "Steering"
+msgstr "Skręt"
+
+#: src/launcher/controls.cpp
+msgid "Wheel input"
+msgstr "Wejście kierownicy"
+
+#: src/launcher/controls.cpp
+msgid "Steering curve - %s"
+msgstr "Krzywa skrętu - %s"
+
+#: src/launcher/controls.cpp src/launcher/mod_manager.cpp src/launcher/save_manager.cpp
+#: src/launcher/song_manager.cpp src/launcher/texture_manager.cpp
+msgid "Close"
+msgstr "Zamknij"
+
+#: src/launcher/controls.cpp
 msgid "Player 2 plays with"
 msgstr "Gracz 2 gra na"
 
@@ -608,6 +755,34 @@ msgstr "%s (kliknięcie: anuluj)"
 #: src/launcher/controls.cpp
 msgid "Reset to defaults"
 msgstr "Przywróć domyślne"
+
+#: src/launcher/controls.cpp
+msgid "Steering filter"
+msgstr "Filtr skrętu"
+
+#: src/launcher/controls.cpp
+msgid "On (the game's)"
+msgstr "Wł. (z gry)"
+
+#: src/launcher/controls.cpp
+msgid "Off (direct)"
+msgstr "Wył. (bezpośrednio)"
+
+#: src/launcher/controls.cpp
+msgid "Steering curve"
+msgstr "Krzywa skrętu"
+
+#: src/launcher/controls.cpp
+msgid "Graph..."
+msgstr "Wykres..."
+
+#: src/launcher/controls.cpp src/launcher/ui.cpp
+msgid "On"
+msgstr "Wł."
+
+#: src/launcher/controls.cpp
+msgid "Force feedback test"
+msgstr "Test force feedbacku"
 
 #: src/launcher/controls.cpp
 msgid "The wheel (while both are connected)"
@@ -1097,14 +1272,6 @@ msgid "If the game is running from this disc image, close it first."
 msgstr "Jeśli gra działa z tego obrazu płyty, najpierw ją zamknij."
 
 #: src/launcher/iso9660.cpp
-msgid "it ends too early (is the image complete?)"
-msgstr "kończy się za wcześnie (czy obraz jest kompletny?)"
-
-#: src/launcher/iso9660.cpp
-msgid "the file could not be opened (%s)"
-msgstr "nie udało się otworzyć pliku (%s)"
-
-#: src/launcher/iso9660.cpp
 msgid "the file could not be read (%s)"
 msgstr "nie udało się odczytać pliku (%s)"
 
@@ -1271,11 +1438,6 @@ msgstr "&Otwórz folder"
 #: src/launcher/mod_manager.cpp
 msgid "Create &template..."
 msgstr "Utwórz &szablon..."
-
-#: src/launcher/mod_manager.cpp src/launcher/save_manager.cpp src/launcher/song_manager.cpp
-#: src/launcher/texture_manager.cpp
-msgid "Close"
-msgstr "Zamknij"
 
 #: src/launcher/music.cpp
 msgid "The music conversion was stopped (%d files converted); it carries on with the rest the next time."
@@ -2332,10 +2494,6 @@ msgid "%s (the window's size)"
 msgstr "%s (rozmiar okna)"
 
 #: src/launcher/ui.cpp
-msgid "Off"
-msgstr "Wył."
-
-#: src/launcher/ui.cpp
 msgid "%s (not side by side)"
 msgstr "%s (nie obok siebie)"
 
@@ -2418,6 +2576,18 @@ msgstr "2 klatki"
 #: src/launcher/ui.cpp
 msgid "3 frames"
 msgstr "3 klatki"
+
+#: src/launcher/ui.cpp
+msgid "Game clock sync"
+msgstr "Synchronizacja zegara gry"
+
+#: src/launcher/ui.cpp
+msgid "Variable"
+msgstr "Zmienna"
+
+#: src/launcher/ui.cpp
+msgid "Static NTSC"
+msgstr "Stała NTSC"
 
 #: src/launcher/ui.cpp
 msgid "Menu aspect"
@@ -2518,10 +2688,6 @@ msgstr "Zmniejszone (75%%)"
 #: src/launcher/ui.cpp
 msgid "Menu wheels"
 msgstr "Koła z menu"
-
-#: src/launcher/ui.cpp
-msgid "On"
-msgstr "Wł."
 
 #: src/launcher/ui.cpp
 msgid "Race wheels from"
@@ -2714,6 +2880,10 @@ msgstr "Koła bez ograniczeń"
 #: src/launcher/ui.cpp
 msgid "Buy cars not for sale"
 msgstr "Kupno aut niedostępnych"
+
+#: src/launcher/ui.cpp
+msgid "New cars without assists"
+msgstr "Nowe auta bez asyst"
 
 #: src/launcher/ui.cpp
 msgid "Cars in a race"
@@ -3864,6 +4034,22 @@ msgid "Clutch pedal dead zone"
 msgstr "Martwa strefa pedału sprzęgła"
 
 #: src/platform/input_map.cpp
+msgid "Force feedback strength"
+msgstr "Siła force feedbacku"
+
+#: src/platform/input_map.cpp
+msgid "Minimum force"
+msgstr "Siła minimalna"
+
+#: src/platform/input_map.cpp
+msgid "Invert force feedback"
+msgstr "Odwróć force feedback"
+
+#: src/platform/input_map.cpp
+msgid "Force feedback loss workaround"
+msgstr "Obejście utraty force feedbacku"
+
+#: src/platform/input_map.cpp
 msgid "South (A / Cross)"
 msgstr "Dolny (A / Krzyżyk)"
 
@@ -4352,6 +4538,14 @@ msgid "ORIGINAL"
 msgstr "ORYGINALNE"
 
 #: src/platform/settings_menu.cpp
+msgid "STATIC NTSC"
+msgstr "STAŁA NTSC"
+
+#: src/platform/settings_menu.cpp
+msgid "VARIABLE"
+msgstr "ZMIENNA"
+
+#: src/platform/settings_menu.cpp
 msgid "1 FRAME"
 msgstr "1 KLATKA"
 
@@ -4386,6 +4580,18 @@ msgstr "MPH, MILE"
 #: src/platform/settings_menu.cpp
 msgid "CUSTOM"
 msgstr "WŁASNE"
+
+#: src/platform/settings_menu.cpp
+msgid "FORCE FEEDBACK STRENGTH"
+msgstr "SIŁA FORCE FEEDBACKU"
+
+#: src/platform/settings_menu.cpp
+msgid "FORCE FEEDBACK STRENGTH (IN-GAME OPTION IS OFF)"
+msgstr "SIŁA FORCE FEEDBACKU (OPCJA W GRZE WYŁĄCZONA)"
+
+#: src/platform/settings_menu.cpp
+msgid "LINEAR"
+msgstr "LINIOWA"
 
 #: src/platform/settings_menu.cpp
 msgid "%d%% MIRRORED"
@@ -4594,6 +4800,80 @@ msgstr ""
 "ENTER: 0%."
 
 #: src/platform/settings_menu.cpp
+msgid ""
+"ON: THE GAME'S - THE CAR'S STEERING LOCK SHRINKS WITH SPEED,\n"
+"FOLLOWS A SLIDE AND CHANGES AT 90 DEGREES A SECOND.\n"
+"OFF: THE CAR'S FULL LOCK FOLLOWS THE WHEEL DIRECTLY,\n"
+"ITS WHOLE TRAVEL."
+msgstr ""
+"WŁ.: Z GRY - MAKSYMALNY SKRĘT MALEJE Z PRĘDKOŚCIĄ,\n"
+"PODĄŻA ZA POŚLIZGIEM I ZMIENIA SIĘ O 90 STOPNI NA SEKUNDĘ.\n"
+"WYŁ.: PEŁNY SKRĘT PODĄŻA ZA KIEROWNICĄ BEZPOŚREDNIO,\n"
+"W CAŁYM JEJ ZAKRESIE."
+
+#: src/platform/settings_menu.cpp
+msgid ""
+"THE WHEEL'S STEERING INPUT SHAPED:\n"
+"BELOW 0 A SLOW RAMP UP (FINE NEAR\n"
+"THE CENTER, STEEP AT THE END),\n"
+"0 LINEAR, ABOVE 0 A FAST RAMP UP.\n"
+"ENTER: LINEAR."
+msgstr ""
+"KSZTAŁT WEJŚCIA SKRĘTU KIEROWNICY:\n"
+"PONIŻEJ 0 WOLNY NAROST (PRECYZJA\n"
+"PRZY ŚRODKU, STROMO NA KOŃCU),\n"
+"0 LINIOWA, POWYŻEJ 0 SZYBKI\n"
+"NAROST. ENTER: LINIOWA."
+
+#: src/platform/settings_menu.cpp
+msgid ""
+"HOW STRONG THE GAME'S STEERING FORCE IS ON THE WHEEL.\n"
+"0%: NONE. ENTER: 25%. THE GAME'S OWN FORCE FEEDBACK\n"
+"OPTION (ITS OPTIONS MENU) MUST BE ON TOO."
+msgstr ""
+"JAK SILNA JEST SIŁA SKRĘTU GRY NA KIEROWNICY.\n"
+"0%: BRAK. ENTER: 25%. OPCJA FORCE FEEDBACK W GRZE\n"
+"(JEJ MENU OPCJI) TEŻ MUSI BYĆ WŁĄCZONA."
+
+#: src/platform/settings_menu.cpp
+msgid ""
+"THE PULL TO THE CENTER IN THE MENUS (NONE IN A RACE).\n"
+"100%: THE GAME'S OWN. ENTER: 100%."
+msgstr ""
+"CIĄGNIĘCIE DO ŚRODKA W MENU (BRAK W WYŚCIGU).\n"
+"100%: TO Z GRY. ENTER: 100%."
+
+#: src/platform/settings_menu.cpp
+msgid ""
+"THE LEAST FORCE THE WHEEL GETS ONCE THERE IS ANY,\n"
+"FOR A WHEEL THAT DOES NOT MOVE BELOW IT. ENTER: 0%."
+msgstr ""
+"NAJMNIEJSZA SIŁA KIEROWNICY, GDY JAKAŚ JEST, DLA\n"
+"KIEROWNICY, KTÓRA PONIŻEJ NIEJ SIĘ NIE RUSZA. ENTER: 0%."
+
+#: src/platform/settings_menu.cpp
+msgid ""
+"EVERY FORCE THE OTHER WAY, FOR A WHEEL PUSHED AWAY\n"
+"FROM THE CENTER (THE LAUNCHER'S TESTS SHOW WHICH)."
+msgstr ""
+"KAŻDA SIŁA W DRUGĄ STRONĘ, DLA KIEROWNICY PCHANEJ\n"
+"OD ŚRODKA (TESTY W LAUNCHERZE TO POKAZUJĄ)."
+
+#: src/platform/settings_menu.cpp
+msgid ""
+"FOR A WHEEL WHOSE FORCES STOP PARTWAY INTO A RACE:\n"
+"THE STEERING FORCE IS STARTED AGAIN EACH TIME THE GAME\n"
+"SENDS IT (PCSX2'S 'WORKAROUND FOR INTERMITTENT FFB LOSS').\n"
+"LEAVE IT OFF UNLESS NEEDED: ON MANY WHEELS IT MAKES THE\n"
+"FORCES VAGUE OR CUT OUT."
+msgstr ""
+"DLA KIEROWNICY, KTÓREJ SIŁY ZANIKAJĄ W TRAKCIE WYŚCIGU:\n"
+"SIŁA KIEROWNICY JEST URUCHAMIANA OD NOWA ZA KAŻDYM RAZEM,\n"
+"GDY GRA JĄ WYSYŁA (W PCSX2: 'WORKAROUND FOR INTERMITTENT FFB LOSS').\n"
+"WŁĄCZ TYLKO W RAZIE POTRZEBY: NA WIELU KIEROWNICACH SIŁY\n"
+"STAJĄ SIĘ NIEWYRAŹNE LUB ZANIKAJĄ."
+
+#: src/platform/settings_menu.cpp
 msgid "DISPLAY"
 msgstr "EKRAN"
 
@@ -4642,6 +4922,24 @@ msgstr ""
 "1-3: V-SYNC WŁĄCZONY, LICZBA BUFOROWANYCH KLATEK.\n"
 "1 KLATKA DAJE NAJRÓWNIEJSZE TEMPO KLATEK,\n"
 "JEŚLI KOMPUTER UTRZYMUJE LICZBĘ KLATEK."
+
+#: src/platform/settings_menu.cpp
+msgid "GAME CLOCK SYNC"
+msgstr "SYNCHRONIZACJA ZEGARA GRY"
+
+#: src/platform/settings_menu.cpp
+msgid ""
+"VARIABLE: GAME SPEED CHANGES BY A TINY AMOUNT TO IMPROVE FRAME PACING \n"
+" WHILE FPS IS CLOSE TO THE TICK RATE: \n"
+"59.90-60.10 / 119.80-120.20 / 179.70-180.30 / 239.60-240.40\n"
+"\n"
+"STATIC NTSC: STATIC 59.94 HZ TICK RATE (ACCURATE GAME SPEED)"
+msgstr ""
+"ZMIENNA: PRĘDKOŚĆ GRY ZMIENIA SIĘ MINIMALNIE DLA RÓWNIEJSZEGO TEMPA KLATEK,\n"
+"GDY LICZBA FPS JEST BLISKA CZĘSTOTLIWOŚCI TIKÓW:\n"
+"59,90-60,10 / 119,80-120,20 / 179,70-180,30 / 239,60-240,40\n"
+"\n"
+"STAŁA NTSC: STAŁA CZĘSTOTLIWOŚĆ TIKÓW 59,94 HZ (DOKŁADNA PRĘDKOŚĆ GRY)"
 
 #: src/platform/settings_menu.cpp
 msgid "FRAME RATE CAP"
@@ -5604,6 +5902,18 @@ msgid "CARS NOT FOR SALE IN SHOWROOMS CAN BE BOUGHT"
 msgstr "MOŻNA KUPIĆ AUTA NIEDOSTĘPNE W SALONACH"
 
 #: src/platform/settings_menu.cpp
+msgid "NEW CARS WITHOUT ASSISTS"
+msgstr "NOWE AUTA BEZ ASYST"
+
+#: src/platform/settings_menu.cpp
+msgid ""
+"CARS ADDED TO THE GARAGE GET THEIR TCS AND ASM SET TO 0.\n"
+"CARS ALREADY IN THE GARAGE KEEP THEIR SETTINGS."
+msgstr ""
+"AUTA DODAWANE DO GARAŻU MAJĄ TCS I ASM USTAWIONE NA 0.\n"
+"AUTA JUŻ BĘDĄCE W GARAŻU ZACHOWUJĄ SWOJE USTAWIENIA."
+
+#: src/platform/settings_menu.cpp
 msgid "CARS IN A RACE"
 msgstr "AUTA W WYŚCIGU"
 
@@ -5900,6 +6210,30 @@ msgstr "MARTWA STREFA HAMULCA"
 #: src/platform/settings_menu.cpp
 msgid "CLUTCH PEDAL DEAD ZONE"
 msgstr "MARTWA STREFA SPRZĘGŁA"
+
+#: src/platform/settings_menu.cpp
+msgid "STEERING FILTER"
+msgstr "FILTR SKRĘTU"
+
+#: src/platform/settings_menu.cpp
+msgid "STEERING CURVE"
+msgstr "KRZYWA SKRĘTU"
+
+#: src/platform/settings_menu.cpp
+msgid "CENTERING SPRING"
+msgstr "SPRĘŻYNA CENTRUJĄCA"
+
+#: src/platform/settings_menu.cpp
+msgid "MINIMUM FORCE"
+msgstr "SIŁA MINIMALNA"
+
+#: src/platform/settings_menu.cpp
+msgid "INVERT FORCE FEEDBACK"
+msgstr "ODWRÓĆ FORCE FEEDBACK"
+
+#: src/platform/settings_menu.cpp
+msgid "FORCE FEEDBACK LOSS WORKAROUND"
+msgstr "OBEJŚCIE UTRATY FORCE FEEDBACKU"
 
 #: src/platform/settings_menu.cpp
 msgid "PLAYER 2'S DEVICE, CONTROLLER AND WHEEL."
@@ -6340,6 +6674,32 @@ msgstr "GÓRA / DÓŁ  LEWO / PRAWO  %s%sESC ZAMKNIJ"
 #: src/platform/texture_menu.cpp
 msgid "TEXTURES"
 msgstr "TEKSTURY"
+
+#~ msgid ""
+#~ "FOR A WHEEL WHOSE FORCES STOP PARTWAY INTO A RACE:\n"
+#~ "THE FORCES ARE STARTED AGAIN WITH EACH UPDATE.\n"
+#~ "LEAVE IT OFF IF THE FORCES DO NOT STOP: ON SOME\n"
+#~ "WHEELS IT MAKES THEM JUDDER."
+#~ msgstr ""
+#~ "DLA KIEROWNICY, KTÓREJ SIŁY ZANIKAJĄ W TRAKCIE WYŚCIGU:\n"
+#~ "SIŁY SĄ URUCHAMIANE OD NOWA PRZY KAŻDEJ AKTUALIZACJI.\n"
+#~ "ZOSTAW WYŁĄCZONE, JEŚLI SIŁY NIE ZANIKAJĄ: NA NIEKTÓRYCH\n"
+#~ "KIEROWNICACH POWODUJE TO SZARPANIE."
+
+#~ msgid "On (the game's: the lock shrinks with speed)"
+#~ msgstr "Wł. (z gry: skręt maleje z prędkością)"
+
+#~ msgid "Off (direct: the wheel's whole travel to full lock)"
+#~ msgstr "Wył. (bezpośrednio: cały zakres do pełnego skrętu)"
+
+#~ msgid ""
+#~ "VARIABLE: THE GAME'S CLOCK FOLLOWS THE DISPLAY\n"
+#~ "AT 59.90-60.10 HZ OR 2-4 TIMES THAT: STEADY PACING.\n"
+#~ "STATIC NTSC: THE ORIGINAL 59.94 HZ ALWAYS."
+#~ msgstr ""
+#~ "ZMIENNA: ZEGAR GRY PODĄŻA ZA EKRANEM\n"
+#~ "PRZY 59,90-60,10 HZ LUB 2-4 RAZY TYLE: RÓWNE TEMPO.\n"
+#~ "STAŁA NTSC: ZAWSZE ORYGINALNE 59,94 HZ."
 
 #~ msgid "Test"
 #~ msgstr "TestPL"
