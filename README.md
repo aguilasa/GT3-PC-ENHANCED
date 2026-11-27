@@ -14,6 +14,8 @@ Then open the launcher, extract the game files from any of the three main versio
 or run the game from a disc file directly,
 configure the settings, and play.
 
+On Linux, see [Linux](#linux) below.
+
 
 
 # Perfect 1:1 parity with the PlayStation 2 original, only better:
@@ -374,6 +376,71 @@ Inside the plugin's folder is `engine.txt`, this allows you to set the mod's tit
 - Course Mode forcer: Forces a certain finish line position
 - Race model in menus: Loads the race model of a car in menus w/ LOD level selector
 
+
+# Linux
+
+The game also builds and runs natively on Linux, as a 32-bit x86 (i686) program,
+rendering through DXVK-native on Vulkan with SDL3 for the window, input and sound.
+There is no launcher window on Linux: the game files are installed from the command line.
+
+### Prerequisites
+- Build: [Docker](https://docs.docker.com/engine/install/) (or Podman). The build runs in an
+  Ubuntu 24.04 container that has the compilers and the 32-bit development libraries,
+  made from [scripts/linux-build.Dockerfile](scripts/linux-build.Dockerfile).
+  The first build needs the network: it downloads SDL3, DXVK-native and FFmpeg.
+- Play: the host needs only the 32-bit runtime libraries and a 32-bit Vulkan driver.
+  On Ubuntu 24.04 and derivatives:
+  ```sh
+  sudo dpkg --add-architecture i386 && sudo apt update
+  sudo apt install libc6:i386 libstdc++6:i386 libvulkan1:i386 libx11-6:i386 libxext6:i386 \
+      libxcursor1:i386 libxi6:i386 libxfixes3:i386 libxrandr2:i386 libxss1:i386 \
+      libxkbcommon0:i386 libwayland-client0:i386 libwayland-cursor0:i386 libwayland-egl1:i386 \
+      libdecor-0-0:i386 libegl1:i386 libudev1:i386 libusb-1.0-0:i386 libdbus-1-3:i386 \
+      libasound2t64:i386 libpulse0:i386 libpipewire-0.3-0t64:i386
+  sudo apt install mesa-vulkan-drivers:i386        # Intel / AMD
+  sudo apt install libnvidia-gl-580:i386           # NVIDIA: the same version as the driver in use
+  ```
+
+> **Warning:** do not install the `-dev:i386` packages (libx11-dev:i386, libwayland-dev:i386,
+> libpulse-dev:i386 ...) on an Ubuntu 24.04 desktop: apt resolves their conflicts by
+> **removing the desktop** (gnome-shell, gdm3). They belong in the build container only.
+> If an `apt install` lists `The following packages will be REMOVED` with gnome-shell or gdm3, answer `n`.
+> `apt-get -s install ...` shows what would happen without changing anything.
+
+### Building
+From the root of the clone:
+```sh
+docker build -t gt3pc-linux-build -f scripts/linux-build.Dockerfile scripts
+docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp \
+    -v "$PWD:$PWD" -w "$PWD" gt3pc-linux-build scripts/build-linux.sh
+```
+[scripts/build-linux.sh](scripts/build-linux.sh) builds SDL3, DXVK-native and FFmpeg into
+`build-linux/deps`, then the game (`gt3pc`) and the installer (`gt3launcher`) into `build-linux/bin`,
+with the SDL3 and DXVK libraries beside them: that folder runs as it is, and can be moved.
+With Podman, use the same commands with `podman` for `docker` (rootless: `--userns=keep-id` for `--user`).
+
+### Installing the game files
+From a disc image of Gran Turismo 3 (USA, Europe or Japan):
+```sh
+build-linux/bin/gt3launcher --install <image.iso> --to <folder>
+```
+This extracts the game files into `<folder>/data_US` (or `data_EU`, `data_JP`).
+Without `--to`, they go into the launcher's folder.
+`--unpack <GT3.VOL> --to <folder>` does the same from the disc's `GT3.VOL` as a file.
+
+### Playing
+```sh
+build-linux/bin/gt3pc --data <folder>/data_US
+```
+The settings (`gt3pc.ini`), the log (`gt3pc.log`) and the save folders (`saves/`)
+are written next to `gt3pc`, in `build-linux/bin`.
+
+### Known limitations on Linux
+- Tested on X11 only; a native Wayland session, steering wheels and a second monitor have not been tested.
+- Intel GPUs: Ubuntu 24.04's 32-bit Mesa driver (25.2) runs the game at about half the frame rate
+  of Mesa 26.2 on the same machine. A newer Mesa helps.
+- Without the 32-bit sound libraries (libasound2t64, libpulse0, libpipewire-0.3-0t64) the game runs without sound.
+- The movies (MP4) play through the FFmpeg built into the game; no system FFmpeg is needed.
 
 # Technical
 
