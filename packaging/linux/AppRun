@@ -1,0 +1,45 @@
+#!/bin/sh
+# AppRun - the entry point of the GT3 PC AppImage (scripts/package-appimage.sh).
+#
+#   GT3PC-i686.AppImage [game arguments]      runs the game (gt3pc)
+#   GT3PC-i686.AppImage --install <image.iso>  installs the game files from a
+#   GT3PC-i686.AppImage --unpack <gt3.vol>     disc image (gt3launcher)
+#   GT3PC-i686.AppImage launcher [arguments]   runs gt3launcher with the
+#                                              arguments as they are
+#
+# The game keeps gt3pc.ini, its log, the save folders, the screenshots and its
+# caches in the folder of its executable, and the installer puts the game
+# files there by default: a folder the AppImage, mounted read-only, cannot
+# offer.  The programs and their libraries are therefore copied once (again
+# after each new AppImage) into a folder of the user's and run from there:
+# GT3PC_HOME, by default $XDG_DATA_HOME/gt3pc (~/.local/share/gt3pc).  The
+# installed game files go to the same folder, where the game finds them.
+set -eu
+
+here=$(dirname "$(readlink -f "$0")")
+app=$here/usr/lib/gt3pc
+home=${GT3PC_HOME:-${XDG_DATA_HOME:-$HOME/.local/share}/gt3pc}
+
+# the programs copied when this AppImage's are not the ones there yet (each
+# file written beside and renamed over the old one: a running copy is kept)
+build=$(cat "$here/usr/share/gt3pc/build-id")
+if [ "$(cat "$home/.appimage-build-id" 2>/dev/null || true)" != "$build" ]; then
+    mkdir -p "$home"
+    for f in "$app"/*; do
+        name=$(basename "$f")
+        cp "$f" "$home/.$name.new"
+        mv -f "$home/.$name.new" "$home/$name"
+    done
+    printf '%s\n' "$build" > "$home/.appimage-build-id"
+fi
+
+case ${1-} in
+--install | --unpack)
+    exec "$home/gt3launcher" "$@"
+    ;;
+launcher)
+    shift
+    exec "$home/gt3launcher" "$@"
+    ;;
+esac
+exec "$home/gt3pc" "$@"
