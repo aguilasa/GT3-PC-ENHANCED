@@ -166,14 +166,17 @@ build_game() {
     step "gt3pc and gt3launcher"
     local type=()
     [[ -n ${CMAKE_BUILD_TYPE:-} ]] && type=(-DCMAKE_BUILD_TYPE="$CMAKE_BUILD_TYPE")
-    # SDL3 and DXVK-native from the prefix; the run path $ORIGIN (before the
-    # prefix's folder, which CMake adds for the build tree) finds the copies
-    # next to the programs.
+    # SDL3 and DXVK-native from the prefix; the run path is only $ORIGIN,
+    # which finds the copies next to the programs.  (The build tree's run
+    # path would also hold the prefix's folder, an absolute path of this
+    # machine, since DXVK is linked by its path: the install run path is
+    # used instead, and it never takes the link folders.)
     cmake -S "$ROOT" -B "$BUILD" -G Ninja \
         -DCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN" "${type[@]}" \
         -DSDL3_DIR="$DEPS/lib/cmake/SDL3" \
         -DGT3PC_DXVK_ROOT="$DEPS" \
-        -DCMAKE_BUILD_RPATH="\$ORIGIN"
+        -DCMAKE_BUILD_WITH_INSTALL_RPATH=ON \
+        -DCMAKE_INSTALL_RPATH="\$ORIGIN"
     cmake --build "$BUILD" -j "$JOBS" "$@"
 
     local bin=$BUILD/bin lib
