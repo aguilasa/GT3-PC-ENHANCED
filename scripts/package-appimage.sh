@@ -9,10 +9,10 @@
 #   ./GT3PC-i686.AppImage                         plays
 #   ./GT3PC-i686.AppImage launcher [arguments]    gt3launcher as it is
 #
-# The game writes beside its executable (gt3pc.ini, the log, the save
-# folders, the caches), so AppRun copies the programs once per AppImage into
-# GT3PC_HOME (default ~/.local/share/gt3pc) and runs them from there; the
-# game files are installed there too (packaging/linux/AppRun).
+# The programs run from the AppImage; their folder there is read-only, so
+# the game writes its files (gt3pc.ini, the log, the save folders, the
+# caches) into GT3PC_HOME, by default ~/.local/share/gt3pc, and the game
+# files are installed there too (src/platform/posix/user_dir.h).
 #
 # What the machine that runs it needs (no development packages): the :i386
 # runtime libraries the AppImage does not carry - libc6, libstdc++6,
@@ -112,7 +112,7 @@ chmod +x "$APPIMAGETOOL"
 # ---- the AppDir ------------------------------------------------------------
 step "AppDir $APPDIR"
 rm -rf "$APPDIR"
-mkdir -p "$APPDIR/usr/lib/gt3pc" "$APPDIR/usr/share/licenses/gt3pc" "$APPDIR/usr/share/gt3pc" \
+mkdir -p "$APPDIR/usr/lib/gt3pc" "$APPDIR/usr/share/licenses/gt3pc" \
     "$APPDIR/usr/share/applications" "$APPDIR/usr/share/icons/hicolor/256x256/apps"
 for f in "${PROGRAMS[@]}"; do
     cp "$BIN/$f" "$APPDIR/usr/lib/gt3pc/$f"
@@ -120,9 +120,6 @@ done
 for f in "${LICENCES[@]}"; do
     cp "$BIN/$f" "$APPDIR/usr/share/licenses/gt3pc/$f"
 done
-# (AppRun copies the programs out again when this changes: their checksums)
-(cd "$APPDIR/usr/lib/gt3pc" && sha256sum "${PROGRAMS[@]}") | sha256sum | cut -d' ' -f1 \
-    > "$APPDIR/usr/share/gt3pc/build-id"
 install -m 755 "$PACKAGING/AppRun" "$APPDIR/AppRun"
 cp "$PACKAGING/gt3pc.desktop" "$APPDIR/gt3pc.desktop"
 cp "$PACKAGING/gt3pc.desktop" "$APPDIR/usr/share/applications/gt3pc.desktop"

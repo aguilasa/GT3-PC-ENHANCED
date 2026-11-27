@@ -41,7 +41,9 @@ bool init(int argc, char **argv);
  * a disc image's data folder whose image could not be used (UTF-8). */
 const std::string &init_error();
 
-const std::string &game_dir();      /* the executable's folder, with a trailing '\' */
+/* The executable's folder, with a trailing '\'.  Off Windows, when that
+ * folder is read-only, the user's instead (platform/posix/user_dir.h). */
+const std::string &game_dir();
 /* PC (2026-11-14, user request: the executable plugin system; src/launcher/
  * engines.h).  gt3pc.ini, the settings: the executable's folder's, or with
  * --shared <folder> that folder's - an engine started from another

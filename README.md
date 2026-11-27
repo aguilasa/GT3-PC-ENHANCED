@@ -424,15 +424,19 @@ From a disc image of Gran Turismo 3 (USA, Europe or Japan):
 build-linux/bin/gt3launcher --install <image.iso> --to <folder>
 ```
 This extracts the game files into `<folder>/data_US` (or `data_EU`, `data_JP`).
-Without `--to`, they go into the launcher's folder.
+Without `--to`, they go into the launcher's folder, or into the user's folder
+(see below) when the launcher's folder is read-only.
 `--unpack <GT3.VOL> --to <folder>` does the same from the disc's `GT3.VOL` as a file.
 
 ### Playing
 ```sh
 build-linux/bin/gt3pc --data <folder>/data_US
 ```
-The settings (`gt3pc.ini`), the log (`gt3pc.log`) and the save folders (`saves/`)
-are written next to `gt3pc`, in `build-linux/bin`.
+The settings (`gt3pc.ini`), the log (`gt3pc.log`), the save folders (`saves/`), the screenshots
+and the caches are written next to `gt3pc`, in `build-linux/bin`.
+When that folder is read-only (an AppImage, a system install) they go into
+`$XDG_DATA_HOME/gt3pc` (`~/.local/share/gt3pc`), and the game also looks for its installed
+game files there. `GT3PC_HOME=<folder>` puts them in that folder instead, writable or not.
 
 ### Known limitations on Linux
 - Tested on X11 only; a native Wayland session, steering wheels and a second monitor have not been tested.

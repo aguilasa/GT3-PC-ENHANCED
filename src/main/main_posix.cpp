@@ -18,6 +18,7 @@
 #include "platform/paths.h"
 #include "platform/play_time.h"
 #include "platform/posix/run.h"
+#include "platform/posix/user_dir.h"
 #include "platform/scheduler.h"
 #include "platform/settings.h"
 #include "platform/system_menu.h"
@@ -71,7 +72,8 @@ int main(int argc, char **argv)
 {
     pcrun::wait_for_previous_run(argc, argv);
 
-    const std::string dir = pcrun::exe_dir();
+    /* (the executable's folder, or the user's: user_dir.h) */
+    const std::string dir = pcrun::user_dir(pcrun::exe_dir());
     pclog::open(pcrun::rotate_log(dir).c_str());
     pclog::write("Gran Turismo 3 A-Spec (PC)");
     if (pcrun::new_game_run(argc, argv)) {

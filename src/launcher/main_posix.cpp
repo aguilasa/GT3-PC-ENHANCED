@@ -16,6 +16,7 @@
  * launcher's window is Windows' only. */
 #include "install.h"
 #include "util.h"
+#include "platform/posix/user_dir.h"
 
 #include <signal.h>
 #include <stdio.h>
@@ -181,6 +182,8 @@ int main(int argc, char **argv)
     if (iso.empty() == volume.empty())
         return usage(iso.empty() ? "--to needs --install <image.iso> or --unpack <gt3.vol>."
                                  : "--install and --unpack cannot be used together.");
-    const std::wstring to = folder.empty() ? util::exe_folder() : util::widen(folder);
+    /* (no --to: the folder the game looks in, user_dir.h) */
+    const std::wstring to =
+        folder.empty() ? util::widen(pcrun::user_dir(util::narrow(util::exe_folder()))) : util::widen(folder);
     return iso.empty() ? run_install(util::widen(volume), true, to) : run_install(util::widen(iso), false, to);
 }

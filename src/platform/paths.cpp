@@ -5,6 +5,9 @@
 #include "platform/save_folders.h"             /* PC (2026-11-15) */
 #include "platform/os/fs.h"
 #include "platform/os/win_compat.h"
+#ifndef _WIN32
+#include "platform/posix/user_dir.h"
+#endif
 
 #include <stdio.h>
 #include <string.h>
@@ -80,6 +83,15 @@ bool init(int argc, char **argv)
     if (slash != std::string::npos)
         exe.resize(slash + 1);
     g_gameDir = exe;
+#ifndef _WIN32
+    /* GT3PC_HOME, or the executable's folder read-only: the user's
+     * (platform/posix/user_dir.h) */
+    g_gameDir = pcrun::user_dir(exe);
+    if (g_gameDir != exe)
+        pclog::write("files: the settings, saves, caches and game files are in %s (not %s: %s)", g_gameDir.c_str(),
+                     exe.c_str(), getenv("GT3PC_HOME") != nullptr && getenv("GT3PC_HOME")[0] != 0 ? "GT3PC_HOME"
+                                                                                                 : "read-only");
+#endif
 
     /* PC (2026-11-14): the settings file - another launcher's with --shared
      * (this engine was started from its selector) - and the engine's own */
@@ -124,7 +136,7 @@ bool init(int argc, char **argv)
     for (const char *v : {"US", "EU", "JP"})
         candidates.push_back(g_gameDir + kDataFolder + "_" + folder(v));
     candidates.push_back(g_gameDir + folder(kDataFolder));
-    candidates.push_back(with_slash(full_path(g_gameDir + folder("..") + folder("..") + folder("gt3_disc") +
+    candidates.push_back(with_slash(full_path(exe + folder("..") + folder("..") + folder("gt3_disc") +
                                               folder("files") + kDataFolder)));
     for (const std::string &c : candidates)
         if (file_exists(c + kInstallMarker)) {
