@@ -4,9 +4,12 @@
 # dxvk-dxgi), else the i686 build in GT3PC_DXVK_ROOT (~/opt/i386: its .pc
 # files, else its headers and libraries by path).  GT3PC_DXVK_LIBDIR: the
 # libraries' folder.  The libraries find each other and SDL3 at run time
-# (DXVK_WSI_DRIVER=SDL3, set by platform/gpu.cpp): with ~/opt/i386 the
-# program runs with LD_LIBRARY_PATH=$HOME/opt/i386/lib.  Not found: an error,
-# or with GT3PC_DXVK_OPTIONAL no target (the tests).
+# (DXVK_WSI_DRIVER=SDL3, set by platform/gpu.cpp): the programs find them by
+# the run path CMake writes (the libraries' folder in a build tree; $ORIGIN,
+# beside the copies scripts/build-linux.sh puts there).  Only the platform
+# tests run with LD_LIBRARY_PATH (their ctest environment, in
+# tools/platform_tests/CMakeLists.txt).  Not found: an error, or with
+# GT3PC_DXVK_OPTIONAL no target (the tests).
 if(TARGET gt3_dxvk)
     return()
 endif()
