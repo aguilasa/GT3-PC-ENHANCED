@@ -79,7 +79,7 @@
 #include "game/app/pc_headcam.h"                /* PC: the cockpit camera's own car (drawCars) */
 #include "game/app/pc_customcam.h"              /* PC: a custom camera's own car (drawCars) */
 #ifndef _WIN32
-#include "game/app/pc_racing_line.h"            /* PC: the racing line on the road (drawView) */
+#include "game/app/pc_racing_line.h"            /* PC: the racing line on the road (drawView, drawSubView) */
 #endif
 #include "game/app/pc_debugcam.h"               /* PC: the debug camera */
 
@@ -555,6 +555,9 @@ void RacePS2Base::drawSubView(GSBuffer *buf, int sub, f32 zoom)
         RigidBodyManager::SetLightVector((const Vec3 *)env->lightB[0].pos);
         rigidBodies.draw();
     }
+#ifndef _WIN32
+    pc_racing_line_draw(this, cm);          /* PC: the racing line on the road, the strip of this view's car (game/app/pc_racing_line.h) */
+#endif
 
     /* the rear-view mirror (the rectangle is the one drawView set) */
     if (replayMode == RACE_LIVE) {
