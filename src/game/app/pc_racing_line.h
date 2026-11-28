@@ -23,7 +23,15 @@
  * "racing line: sample" line for each sample (its distance, its point, how
  * its road height was found, the line's own height there, the two
  * vertices); once for a course, line 6's nodes ("racing line: node").
- * The strip is not drawn yet. */
+ *
+ * [Debug] RacingLineForce=on draws the strip (a stand-in for its own
+ * setting): semi-transparent, one colour, fading in over its first metres
+ * and out over its last, depth tested against the course and the cars but
+ * not writing depth, blended into the colour only (the frame's alpha, which
+ * the effects after the cars read, is kept).  Only in a live race: not in a
+ * replay, a demo (the attract demo, the race behind a menu), a race preview
+ * (the licence's demonstration), the logger, the debug camera's view; the
+ * rear-view mirror (drawn by its own pass after it) has none. */
 #ifndef GAME_APP_PC_RACING_LINE_H
 #define GAME_APP_PC_RACING_LINE_H
 
@@ -34,7 +42,8 @@ class CameraManager;
 
 /* The strip for the current view of cm (its car: targetInfo.car[0]), after
  * the cars of RacePS2Base::drawView (T131).  Returns at once when nothing
- * asks for it (the log off) and on a course without line 6. */
+ * asks for it (the log off, the strip off or not shown in this view) and on
+ * a course without line 6. */
 void pc_racing_line_draw(RacePS2Base *race, CameraManager *cm);
 
 #endif /* !_WIN32 */

@@ -13,10 +13,21 @@
 #include "game/race/dynamics/T305_dynamics_conductor.h" /* DynamicsConductor::lines */
 #include "game/race/ai/T368_enemy_lines.h"            /* CourseLines, EnemyLines, lines_ground_height */
 #include "game/race/ai/T371_line_segment.h"           /* line_point_at */
+#include "game/race/core/T125_race_organization.h" /* RaceOrganization: backgroundMode, racePreviewMode, loggerMode */
+#include "game/app/pc_debugcam.h"                     /* pc_debugcam_owns */
+#include "engine/pgl/G001_flare.h"                    /* GsContext, gfx_alloc_tail, strip_*, gfx_* */
 #include "platform/log.h"
+#include "platform/paths.h"                           /* ini_path */
 #include "platform/settings.h"
+#include "platform/os/ini_posix.h"                    /* GetPrivateProfileStringA */
 
 #include <math.h>
+#include <string.h>
+#include <strings.h>
+
+/* The drawing context (engine/pgl/pgl_port.h): its state is read to be put
+ * back after the strip. */
+extern "C" GsContext g_pglCtx;
 
 namespace {
 
@@ -31,6 +42,15 @@ constexpr f32 kFarRoad = 1.5f;              /* m: a road found from every sector
 constexpr f32 kJump = 50.0f;                /* m: a lap distance moved more in a frame is a cut (a replay's) */
 constexpr int kLogEvery = 6;                /* the log: every 6th frame of a view */
 constexpr int kViews = 4;                   /* CameraManager::views */
+constexpr int kStripVerts = 64;             /* a strip's vertices at most (VU1_MAX_VERTS) */
+constexpr int kFadeIn = 4;                  /* samples from nothing to full at the near end (8 m) */
+constexpr int kFadeOut = 15;                /* and back to nothing at the far end (30 m) */
+/* The strip's colour (GS: R, G, B 0..255, A 0x80 = opaque) at full. */
+constexpr u32 kRed = 0x40, kGreen = 0xD8, kBlue = 0xFF, kAlpha = 0x58;
+
+/* GsContext bits read to restore the state (engine/pgl/pgl_port.h). */
+constexpr u16 kPrimTme = 0x010, kPrimAbe = 0x040;
+constexpr u64 kTestAte = 1ull << 0, kTestDate = 1ull << 14;
 
 /* One point of the strip: its lap distance, its centre in the view's space
  * (x, the road's height, -y), and its two vertices. */
@@ -146,11 +166,110 @@ void log_frame(RacePS2Base *race, CameraManager *cm, RaceCarState *car, CourseLi
     }
 }
 
+/* [Debug] RacingLineForce=on: the strip drawn (read once, at the first
+ * frame; a stand-in until the strip has its own setting). */
+int force_on()
+{
+    static int on = -1;
+    if (on < 0) {
+        char v[16];
+        GetPrivateProfileStringA("Debug", "RacingLineForce", "off", v, sizeof(v), paths::ini_path().c_str());
+        on = strcasecmp(v, "on") == 0 || strcmp(v, "1") == 0;
+        if (on)
+            pclog::write("racing line: drawn ([Debug] RacingLineForce=on)");
+    }
+    return on;
+}
+
+/* The strip is drawn in this view: a live race (not a replay, nor a demo:
+ * the attract demo, the race behind a menu), no race preview (the licence's
+ * demonstration), not the logger, not the debug camera's view. */
+int shown(RacePS2Base *race, CameraManager *cm)
+{
+    const RaceOrganization &org = race->getOrganization();
+    return race->getReplayMode() == RACE_LIVE && org.backgroundMode == 0 && org.racePreviewMode == 0 &&
+           org.loggerMode == 0 && !pc_debugcam_owns(cm->current);
+}
+
+/* The strip: the samples' left and right vertices in turn (a triangle
+ * strip), in buffers of gfx_alloc_tail (read when the frame is drawn),
+ * cut into strips of kStripVerts at most, each starting on the last pair of
+ * the one before.  Its alpha rises over the first kFadeIn samples and falls
+ * over the last kFadeOut.  Drawn under the view's matrix, as the cars:
+ * depth tested but not written (the cars and the course behind keep their
+ * depth), blended by its alpha into the colour alone (the frame's alpha,
+ * which the cars left for the effects after them, is kept), no texture, no
+ * culling, the fog as the course left it; the state is put back after. */
+void draw_strip()
+{
+    constexpr int n = kSamples * 2;
+    PrimVertex *xyz = (PrimVertex *)gfx_alloc_tail((n * (int)sizeof(PrimVertex) + 15) / 16);
+    u32 *rgba = (u32 *)gfx_alloc_tail((n * 4 + 15) / 16);
+    for (int i = 0; i < kSamples; i++) {
+        const Sample &s = g_samples[i];
+        f32 f = 1.0f;
+        if (i < kFadeIn)
+            f = (f32)(i + 1) / (f32)(kFadeIn + 1);
+        if (kSamples - 1 - i < kFadeOut)
+            f = fminf(f, (f32)(kSamples - 1 - i) / (f32)kFadeOut);
+        const u32 a = (u32)((f32)kAlpha * f + 0.5f);
+        const u32 c = kRed | kGreen << 8 | kBlue << 16 | a << 24;
+        xyz[2 * i] = {s.left[0], s.left[1], s.left[2]};
+        xyz[2 * i + 1] = {s.right[0], s.right[1], s.right[2]};
+        rgba[2 * i] = c;
+        rgba[2 * i + 1] = c;
+    }
+
+    /* the state before */
+    const GsContext &ctx = g_pglCtx;
+    const int wasTexture = (ctx.primAttr & kPrimTme) != 0, wasBlend = (ctx.primAttr & kPrimAbe) != 0;
+    const int wasAlphaTest = (ctx.reg[GS_REG_TEST] & kTestAte) != 0;
+    const int wasDestAlpha = (ctx.reg[GS_REG_TEST] & kTestDate) != 0;
+    const int wasDepthTest = ctx.depthTest, wasDepthWrite = ctx.zMask == 0, wasCull = ctx.cullEnable;
+    const u8 blendAbcd = (u8)(ctx.reg[GS_REG_ALPHA] & 0xFF), blendFix = (u8)(ctx.reg[GS_REG_ALPHA] >> 32);
+    const u32 writeMask = ~(u32)(ctx.reg[GS_REG_FRAME] >> 32);
+
+    gfx_enable(PGL_CAP_DEPTH_TEST);
+    gfx_depth_mask(0);
+    gfx_disable(PGL_CAP_TEXTURE);
+    gfx_disable(PGL_CAP_ALPHA_TEST);
+    gfx_disable(PGL_CAP_DEST_ALPHA);
+    gfx_disable(PGL_CAP_CULL_FACE);
+    gfx_enable(PGL_CAP_BLEND);
+    gfx_blend_func(PGL_BLEND_ALPHA, 1.0f);
+    gfx_set_frame_write_mask(0x00FFFFFFu);  /* (FRAME_WRITE_RGB) */
+    strip_batch_begin();
+    for (int first = 0; first + 2 < n; first += kStripVerts - 2) {
+        const int count = n - first < kStripVerts ? n - first : kStripVerts;
+        strip_draw(&xyz[first], NULL, &rgba[first], NULL, count);
+    }
+    strip_batch_end();
+
+    /* back as it was */
+    gfx_set_frame_write_mask(writeMask);
+    gfx_blend_func_raw(blendAbcd, blendFix);
+    if (!wasBlend)
+        gfx_disable(PGL_CAP_BLEND);
+    if (wasCull)
+        gfx_enable(PGL_CAP_CULL_FACE);
+    if (wasDestAlpha)
+        gfx_enable(PGL_CAP_DEST_ALPHA);
+    if (wasAlphaTest)
+        gfx_enable(PGL_CAP_ALPHA_TEST);
+    if (wasTexture)
+        gfx_enable(PGL_CAP_TEXTURE);
+    gfx_depth_mask(wasDepthWrite ? 1 : 0);
+    if (!wasDepthTest)
+        gfx_disable(PGL_CAP_DEPTH_TEST);
+}
+
 } // namespace
 
 void pc_racing_line_draw(RacePS2Base *race, CameraManager *cm)
 {
-    if (!settings::debug_racing_line_log())
+    const int logged = settings::debug_racing_line_log();
+    const int drawn = force_on() && shown(race, cm);
+    if (!logged && !drawn)
         return;
     if (cm->current < 0 || cm->current >= kViews)
         return;
@@ -163,14 +282,14 @@ void pc_racing_line_draw(RacePS2Base *race, CameraManager *cm)
         return;
     const f32 lap = cl->course->getLapLength();
     if (cl->data == NULL || cl->data->line[kLineRacing] == NULL) {
-        if (first_for_course(cl->data, lap))
+        if (first_for_course(cl->data, lap) && logged)
             pclog::write("racing line: no line 6 on this course (lap %.3f): no strip", lap);
         return;
     }
     if (!(lap > 0.0f))
         return;
     ViewState *vs = &g_views[cm->current];
-    if (first_for_course(cl->data, lap))
+    if (first_for_course(cl->data, lap) && logged)
         log_nodes(cl, lap);
 
     /* the points: the car's lap distance (as drawCars, t 0) and on.  The
@@ -253,7 +372,9 @@ void pc_racing_line_draw(RacePS2Base *race, CameraManager *cm)
         s.right[2] = s.centre[2] - sz;
     }
 
-    if (vs->frame++ % kLogEvery == 0)
+    if (drawn)
+        draw_strip();
+    if (vs->frame++ % kLogEvery == 0 && logged)
         log_frame(race, cm, car, cl, vs, lap, dist);
 }
 
